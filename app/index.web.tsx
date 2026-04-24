@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, Animated, Easing } from "react-native";
+import { View, Text, TouchableOpacity, Animated, Easing, ScrollView } from "react-native";
 import { router } from "expo-router";
 
 import { s as hs }  from "../styles/header";
 import { s as fs }  from "../styles/footer";
 import { hero, test, train, howItWorks, dashboard, vault, cta } from "../styles/landing";
+import { NAV_H } from "../styles/theme";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data
@@ -104,15 +105,7 @@ function shuffle<T>(arr: T[]): T[] {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  Header
 // ─────────────────────────────────────────────────────────────────────────────
-function Header() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 40);
-    window.addEventListener("scroll", fn, { passive: true });
-    return () => window.removeEventListener("scroll", fn);
-  }, []);
-
+function Header({ scrolled, scrollRef }: { scrolled: boolean; scrollRef: React.RefObject<ScrollView> }) {
   function scrollTo(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   }
@@ -720,30 +713,32 @@ function Footer() {
 // Page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
-  useEffect(() => {
-    document.body.style.backgroundColor = "#FAF8F3";
-    document.documentElement.style.overflowY = "auto";
-    document.body.style.overflowY = "auto";
-    document.body.style.height = "auto";
-    return () => {
-      document.body.style.backgroundColor = "";
-      document.documentElement.style.overflowY = "";
-      document.body.style.overflowY = "";
-      document.body.style.height = "";
-    };
-  }, []);
+  const [scrolled, setScrolled] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   return (
-    <View style={{ backgroundColor: "#FAF8F3" }}>
-      <Header />
-      <HeroSection />
-      <InteractiveTestSection />
-      <WhatYouTrainSection />
-      <HowItWorksSection />
-      <DashboardPreviewSection />
-      <VaultSection />
-      <CTASection />
-      <Footer />
+    <View style={{ flex: 1, backgroundColor: "#FAF8F3" }}>
+      {/* Fixed header — sits above the ScrollView */}
+      <Header scrolled={scrolled} scrollRef={scrollRef} />
+
+      {/* Scrollable page content */}
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingTop: NAV_H }}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={e => setScrolled(e.nativeEvent.contentOffset.y > 40)}
+      >
+        <HeroSection />
+        <InteractiveTestSection />
+        <WhatYouTrainSection />
+        <HowItWorksSection />
+        <DashboardPreviewSection />
+        <VaultSection />
+        <CTASection />
+        <Footer />
+      </ScrollView>
     </View>
   );
 }
