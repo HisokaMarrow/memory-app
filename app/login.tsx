@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform,
@@ -7,17 +7,11 @@ import {
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
 
-export default function LoginScreen() {
+export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) router.replace("/dashboard");
-    });
-  }, []);
 
   async function handleAuth() {
     if (!email || !password) return;
@@ -40,12 +34,19 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={s.inner}>
+
+        <TouchableOpacity style={s.backRow} onPress={() => router.back()}>
+          <Text style={s.backText}>← Back</Text>
+        </TouchableOpacity>
+
         <View style={s.brand}>
           <View style={s.logoBox}>
             <Text style={s.logoGlyph}>◆</Text>
           </View>
           <Text style={s.logoText}>MEMORO</Text>
-          <Text style={s.tagline}>Train your mind. Daily.</Text>
+          <Text style={s.tagline}>
+            {mode === "signin" ? "Welcome back." : "Start your training."}
+          </Text>
         </View>
 
         <View style={s.form}>
@@ -85,6 +86,7 @@ export default function LoginScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
       </View>
     </KeyboardAvoidingView>
   );
@@ -92,22 +94,28 @@ export default function LoginScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0A0A0A" },
-  inner: { flex: 1, justifyContent: "center", paddingHorizontal: 32 },
-  brand: { alignItems: "center", marginBottom: 48 },
+  inner: {
+    flex: 1, justifyContent: "center",
+    paddingHorizontal: 32, maxWidth: 420,
+    alignSelf: "center", width: "100%",
+  },
+  backRow: { position: "absolute", top: 56, left: 32 },
+  backText: { color: "#6B7280", fontSize: 15 },
+  brand: { alignItems: "center", marginBottom: 44 },
   logoBox: {
-    width: 60, height: 60, borderRadius: 18,
+    width: 56, height: 56, borderRadius: 16,
     backgroundColor: "#4ADE80",
     alignItems: "center", justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 14,
     shadowColor: "#4ADE80", shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5, shadowRadius: 24,
   },
-  logoGlyph: { fontSize: 26, color: "#0A0A0A" },
+  logoGlyph: { fontSize: 24, color: "#0A0A0A" },
   logoText: {
-    fontSize: 28, fontWeight: "800", color: "#FFFFFF",
-    letterSpacing: 5, marginBottom: 8,
+    fontSize: 26, fontWeight: "800", color: "#FFFFFF",
+    letterSpacing: 5, marginBottom: 6,
   },
-  tagline: { fontSize: 15, color: "#6B7280", letterSpacing: 0.4 },
+  tagline: { fontSize: 15, color: "#6B7280" },
   form: { gap: 12 },
   input: {
     backgroundColor: "rgba(255,255,255,0.05)",
@@ -119,7 +127,7 @@ const s = StyleSheet.create({
     backgroundColor: "#4ADE80", borderRadius: 14,
     paddingVertical: 18, alignItems: "center", marginTop: 4,
   },
-  btnOff: { opacity: 0.45 },
+  btnOff: { opacity: 0.4 },
   btnText: { color: "#0A0A0A", fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
   switchRow: { alignItems: "center", paddingVertical: 14 },
   switchText: { color: "#6B7280", fontSize: 14 },
