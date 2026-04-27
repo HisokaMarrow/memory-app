@@ -1,36 +1,36 @@
-// Header is always on a light background — no dark-hero mode
+// Dark transparent nav
+// Transparent on top, dark-blur when scrolled
 import { StyleSheet } from "react-native";
-import { C, FONT, NAV_H, MAX_W, RADIUS, SHADOW } from "./theme";
+
+// Nav-specific palette
+export const NAV_ORANGE = "#E85D2A";
+export const NAV_TEXT   = "rgba(255,255,255,0.60)";
 
 export const s = StyleSheet.create({
+  // ── Root bar ───────────────────────────────────────────────────────────────
   root: {
-    height: NAV_H,
-    position:            "fixed" as any,
-    top:                 0,
-    left:                0,
-    right:               0,
-    zIndex:              200,
-    backgroundColor:     C.cream,
-    borderBottomWidth:   1,
-    borderBottomColor:   "transparent",
-    transition:          "border-color 0.25s, box-shadow 0.25s" as any,
+    position:          "fixed" as any,
+    top:               0,
+    left:              0,
+    right:             0,
+    zIndex:            200,
+    flexDirection:     "row",
+    alignItems:        "center",
+    justifyContent:    "space-between",
+    paddingHorizontal: 56,
+    paddingVertical:   24,
+    transition:        "all 0.35s ease" as any,
   },
   rootScrolled: {
-    backgroundColor:     C.cream,
-    borderBottomColor:   C.border,
-    boxShadow:           SHADOW.sm as any,
-  },
-  inner: {
-    flex:                1,
-    flexDirection:       "row",
-    alignItems:          "center",
-    justifyContent:      "space-between",
-    maxWidth:            MAX_W,
-    marginHorizontal:    "auto" as any,
-    paddingHorizontal:   48,
+    paddingVertical:      14,
+    backgroundColor:      "rgba(10,10,10,0.85)",
+    backdropFilter:       "blur(18px)" as any,
+    WebkitBackdropFilter: "blur(18px)" as any,
+    borderBottomWidth:    1,
+    borderBottomColor:    "rgba(255,255,255,0.07)",
   },
 
-  // ── Logo ──────────────────────────────────────────────────────────────────
+  // ── Logo ───────────────────────────────────────────────────────────────────
   logo: {
     flexDirection: "row",
     alignItems:    "center",
@@ -38,67 +38,68 @@ export const s = StyleSheet.create({
     cursor:        "pointer" as any,
   },
   logoMark: {
-    width:           36,
-    height:          36,
-    borderRadius:    RADIUS.sm,
-    backgroundColor: C.greenDeep,
+    width:           32,
+    height:          32,
+    borderRadius:    8,
+    backgroundColor: "#121212",
+    borderWidth:     1,
+    borderColor:     "rgba(232,93,42,0.35)",
     alignItems:      "center",
     justifyContent:  "center",
   },
-  logoMarkGlyph: {
-    fontSize:   15,
-    color:      C.textInverse,
-    fontWeight: "800" as const,
+  logoMarkScrolled: {
+    backgroundColor: "rgba(232,93,42,0.15)",
+  },
+  logoMarkText: {
+    fontSize:   14,
+    color:      "#E85D2A",
+    fontWeight: "700" as const,
+  },
+  logoImg: {
+    width:        62,
+    height:       62,
+    borderRadius: 31,
   },
   logoName: {
-    ...FONT.label,
-    fontSize:    16,
-    color:       C.text,
-    letterSpacing: 3.5,
+    fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:      20,
+    fontWeight:    "600" as const,
+    color:         "#FFFFFF",
+    letterSpacing: 0.4,
   },
 
-  // ── Nav links ─────────────────────────────────────────────────────────────
+  // ── Nav links ──────────────────────────────────────────────────────────────
   nav: {
     flexDirection: "row",
     alignItems:    "center",
     gap:           32,
   },
   navLink: {
-    ...FONT.small,
-    fontWeight:  "500" as const,
-    color:       C.body,
-    cursor:      "pointer" as any,
-    transition:  "color 0.15s" as any,
+    fontFamily: "DM Sans, system-ui, sans-serif" as any,
+    fontSize:   14,
+    color:      NAV_TEXT,
+    cursor:     "pointer" as any,
+    transition: "color 0.2s" as any,
   },
+  navLinkActive: { color: "rgba(255,255,255,0.95)" },
 
-  // ── CTA row ───────────────────────────────────────────────────────────────
+  // ── CTA button ─────────────────────────────────────────────────────────────
   btnRow: {
     flexDirection: "row",
     alignItems:    "center",
-    gap:           10,
-  },
-  btnGhost: {
-    borderWidth:     1,
-    borderColor:     C.border,
-    borderRadius:    RADIUS.sm,
-    paddingHorizontal: 18,
-    paddingVertical:   9,
-  },
-  btnGhostText: {
-    ...FONT.small,
-    fontWeight: "600" as const,
-    color:      C.body,
   },
   btnFilled: {
-    backgroundColor: C.greenDeep,
-    borderRadius:    RADIUS.sm,
-    paddingHorizontal: 20,
-    paddingVertical:   10,
-    boxShadow:       "0 2px 8px rgba(26,61,43,0.25)" as any,
+    backgroundColor:   NAV_ORANGE,
+    borderRadius:      999,
+    paddingHorizontal: 22,
+    paddingVertical:   9,
+    cursor:            "pointer" as any,
+    transition:        "opacity 0.2s" as any,
   },
   btnFilledText: {
-    ...FONT.small,
-    fontWeight: "700" as const,
-    color:      C.textInverse,
+    fontFamily: "DM Sans, system-ui, sans-serif" as any,
+    fontSize:   14,
+    fontWeight: "600" as const,
+    color:      "#FFFFFF",
   },
 });
