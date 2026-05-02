@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, Text, TouchableOpacity, Image } from "react-native";
 
-import { foot as fs } from "../styles/main";
+import { foot as fs } from "./FooterSection.styles";
 
 const LINKS = ["About", "Contact", "Privacy", "Terms"];
 
@@ -13,7 +13,7 @@ export default function FooterSection() {
       <View style={fs.inner}>
         <View style={fs.logoWrap}>
           <Image
-            source={require("../assets/images/logo.png")}
+            source={require("../../assets/images/logo.png")}
             style={fs.logoImg}
             resizeMode="cover"
           />

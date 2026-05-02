@@ -1,12 +1,12 @@
+import { createWebStyles } from "../../styles/web";
 // Dark transparent nav
 // Transparent on top, dark-blur when scrolled
-import { StyleSheet } from "react-native";
 
 // Nav-specific palette
 export const NAV_ORANGE = "#E85D2A";
 export const NAV_TEXT   = "rgba(255,255,255,0.60)";
 
-export const s = StyleSheet.create({
+export const s = createWebStyles({
   // ── Root bar ───────────────────────────────────────────────────────────────
   root: {
     position:          "fixed" as any,

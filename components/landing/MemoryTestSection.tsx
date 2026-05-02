@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { router } from "expo-router";
 
-import { test as ts, WORD_INPUT_STYLE } from "../styles/main";
+import { WORD_INPUT_STYLE } from "../../styles/web";
+import { test as ts } from "./MemoryTestSection.styles";
 
 // ── Word data ─────────────────────────────────────────────────────────────────
 const WORDS_A = [
@@ -79,6 +80,8 @@ export default function MemoryTestSection() {
     start(false, words);
   }
 
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
   const filled = inputs.filter((s) => s.trim()).length;
   const score  = correctSet.size;
   const delta  = firstScore !== null ? score - firstScore : 0;
@@ -128,11 +131,13 @@ export default function MemoryTestSection() {
             {phase === "recall" && (
               <View style={ts.phaseWrap}>
                 <Text style={ts.eyebrowGold}>Type every word you remember</Text>
-                <Text style={ts.phaseText}>One word per box — order doesn't matter</Text>
+                <Text style={ts.phaseText}>{"One word per box — order doesn't matter"}</Text>
                 <View style={ts.inputGrid}>
                   {inputs.map((val, i) => (
                     <input
                       key={i}
+                      // @ts-ignore — web-only
+                      ref={(el) => { inputRefs.current[i] = el; }}
                       value={val}
                       placeholder={String(i + 1)}
                       // @ts-ignore — web-only
@@ -141,6 +146,17 @@ export default function MemoryTestSection() {
                         const next = [...inputs];
                         next[i] = e.target.value.replace(/[^a-zA-Z]/g, "");
                         setInputs(next);
+                      }}
+                      // @ts-ignore — web-only
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (i < TOTAL - 1) {
+                            inputRefs.current[i + 1]?.focus();
+                          } else {
+                            check();
+                          }
+                        }
                       }}
                       style={WORD_INPUT_STYLE}
                     />
@@ -218,7 +234,7 @@ export default function MemoryTestSection() {
                 {isFirst && (
                   <>
                     <Text style={ts.tipIntro}>
-                      There's a technique that helps you remember more.
+                      {"There's a technique that helps you remember more."}
                     </Text>
                     <View style={ts.tipBox}>
                       <Text style={ts.eyebrowGold}>Story Method</Text>
@@ -227,7 +243,7 @@ export default function MemoryTestSection() {
                         <Text style={ts.emphasisBold}>The more absurd and visual, the stronger it sticks.</Text>
                       </Text>
                       <Text style={ts.chunkNote}>
-                        Example: "{words.slice(0, 5).join(" → ")}" — one scene, five words locked in.
+                        {"Example: \""}{words.slice(0, 5).join(" → ")}{"\" — one scene, five words locked in."}
                       </Text>
                     </View>
                     <TouchableOpacity style={[ts.btn, ts.btnPrimary]} onPress={tryAgain}>
@@ -240,7 +256,7 @@ export default function MemoryTestSection() {
                 {!isFirst && (
                   <>
                     <Text style={ts.ctaHook}>
-                      Memory isn't genetics.{"\n"}It's a trainable skill.
+                      {"Memory isn't genetics."}{"\n"}{"It's a trainable skill."}
                     </Text>
                     <View style={ts.resultBtnRow}>
                       <TouchableOpacity style={[ts.btn, ts.btnSecondary]} onPress={tryAgain}>
