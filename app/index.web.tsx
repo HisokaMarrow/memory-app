@@ -46,6 +46,7 @@ export default function LandingPage() {
   }, [scrollToTop]);
 
   useEffect(() => {
+    if (typeof sessionStorage === "undefined") return;
     const target = sessionStorage.getItem("scrollTo");
     if (!target) return;
     sessionStorage.removeItem("scrollTo");

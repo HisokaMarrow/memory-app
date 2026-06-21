@@ -1,10 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Easing, Image, ImageBackground, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import DashboardShell from "../components/dashboard/DashboardShell";
-import { getFavouriteGameIds, toggleFavouriteGame } from "../components/games/gamePreferences";
+import { useFavouriteGames } from "../components/games/useFavouriteGames";
 import { GAMES, gamesByCategory, getCategoryConfig, type GameCategoryConfig, type GameConfig, type GameDifficulty } from "../data/gamesCatalog";
 import { games as s } from "../styles/screens/games.styles";
 
@@ -12,6 +12,40 @@ type CardPosition = -2 | -1 | 0 | 1 | 2;
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 const CARD_POSITIONS = [-2, -1, 0, 1, 2];
+const MOBILE_CARD_WIDTH = 290;
+const MOBILE_CARD_GAP = 18;
+
+function findVerticalScrollParent(node: EventTarget | null) {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+
+  let element = node instanceof HTMLElement ? node.parentElement : null;
+  while (element) {
+    const style = window.getComputedStyle(element);
+    const canScroll = /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight;
+    if (canScroll) return element;
+    element = element.parentElement;
+  }
+
+  return document.scrollingElement as HTMLElement | null;
+}
+
+function passVerticalWheelToParent(event: any) {
+  if (Platform.OS !== "web") return;
+
+  const raw = event?.nativeEvent ?? event;
+  const deltaY = Number(raw?.deltaY ?? 0);
+  const deltaX = Number(raw?.deltaX ?? 0);
+  if (Math.abs(deltaY) <= Math.abs(deltaX) || Math.abs(deltaY) < 2) return;
+
+  const scrollParent = findVerticalScrollParent(raw?.target ?? event?.target ?? null);
+  if (!scrollParent) return;
+
+  event?.preventDefault?.();
+  raw?.preventDefault?.();
+  event?.stopPropagation?.();
+  raw?.stopPropagation?.();
+  scrollParent.scrollTop += deltaY;
+}
 
 function difficultyStyle(level: GameDifficulty) {
   if (level === "Beginner") return { color: "#2A9D8F", bg: "rgba(42,157,143,0.12)" };
@@ -23,6 +57,14 @@ function openGame(gameId: string) {
   router.push(`/game/${gameId}` as any);
 }
 
+function dayIndexFor(date = new Date()) {
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+}
+
+function gameOfTheDay() {
+  return GAMES[dayIndexFor() % GAMES.length];
+}
+
 const GameCard = memo(function GameCard({
   game,
   isFavourite,
@@ -30,6 +72,7 @@ const GameCard = memo(function GameCard({
   stacked = false,
   isInactive = false,
   animatedStyle,
+  cardStyle,
 }: {
   game: GameConfig;
   isFavourite: boolean;
@@ -37,14 +80,16 @@ const GameCard = memo(function GameCard({
   stacked?: boolean;
   isInactive?: boolean;
   animatedStyle?: any;
+  cardStyle?: any;
 }) {
   const diff = difficultyStyle(game.difficulty);
   const CardComponent = stacked ? AnimatedTouchable : TouchableOpacity;
   const category = getCategoryConfig(game.category);
+  const isNativeApp = Platform.OS !== "web";
 
   return (
-    <CardComponent style={[s.gameCard, stacked && s.stackedGameCard, animatedStyle]} disabled={!game.unlocked || isInactive} onPress={() => openGame(game.id)}>
-      <View style={s.artZone}>
+    <CardComponent style={[s.gameCard, isNativeApp && s.gameCardApp, stacked && s.stackedGameCard, cardStyle, animatedStyle]} disabled={!game.unlocked || isInactive} onPress={() => openGame(game.id)}>
+      <View style={[s.artZone, isNativeApp && s.artZoneApp]}>
         <View style={s.artStripe} />
         <View style={[s.artWash, { backgroundColor: `${game.color}AA` }]} />
         <View style={s.artPatternRow} pointerEvents="none">
@@ -55,8 +100,8 @@ const GameCard = memo(function GameCard({
         <View style={s.cardEmojiBadge}>
           <Text style={s.cardEmojiText}>{category.emoji}</Text>
         </View>
-        <View style={s.artIcon}>
-          <MaterialCommunityIcons name={game.icon} size={24} color="#FFFFFF" />
+        <View style={[s.artIcon, isNativeApp && s.artIconApp]}>
+          <MaterialCommunityIcons name={game.icon} size={24} color={isNativeApp ? game.color : "#FFFFFF"} />
         </View>
         <TouchableOpacity
           style={[s.favouriteBtn, isFavourite && s.favouriteBtnActive]}
@@ -65,7 +110,7 @@ const GameCard = memo(function GameCard({
             onToggleFavourite(game.id);
           }}
         >
-          <Feather name="heart" size={14} color={isFavourite ? "#FFFFFF" : "rgba(255,255,255,0.68)"} />
+          <Feather name="heart" size={14} color={isFavourite ? "#FFFFFF" : isNativeApp ? "#6A7A86" : "rgba(255,255,255,0.68)"} />
         </TouchableOpacity>
         <View style={s.badgeStack}>
           {game.hot && (
@@ -80,24 +125,24 @@ const GameCard = memo(function GameCard({
           )}
         </View>
         <View style={s.artLabel}>
-          <Text style={s.artLabelText}>samurai art</Text>
+          <Text style={s.artLabelText}>training art</Text>
         </View>
       </View>
 
-      <View style={s.cardBody}>
+      <View style={[s.cardBody, isNativeApp && s.cardBodyApp]}>
         <View style={s.cardKickerRow}>
           <Text style={[s.cardKicker, { color: game.color }]}>{game.category}</Text>
           <View style={[s.cardRule, { backgroundColor: `${game.color}55` }]} />
         </View>
-        <Text style={s.cardTitle}>{game.title}</Text>
-        <Text style={s.cardDesc}>{game.desc}</Text>
+        <Text style={[s.cardTitle, isNativeApp && s.cardTitleApp]}>{game.title}</Text>
+        <Text style={[s.cardDesc, isNativeApp && s.cardDescApp]}>{game.desc}</Text>
         <View style={s.cardMeta}>
           <View style={[s.diffBadge, { backgroundColor: diff.bg }]}>
             <Text style={[s.diffText, { color: diff.color }]}>{game.difficulty}</Text>
           </View>
           <View style={s.duration}>
-            <Feather name="clock" size={11} color="rgba(245,239,227,0.38)" />
-            <Text style={s.durationText}>{game.duration}</Text>
+            <Feather name="clock" size={11} color={isNativeApp ? "#7A8A95" : "rgba(245,239,227,0.38)"} />
+            <Text style={[s.durationText, isNativeApp && s.durationTextApp]}>{game.duration}</Text>
           </View>
         </View>
         <TouchableOpacity
@@ -113,28 +158,68 @@ const GameCard = memo(function GameCard({
   );
 });
 
-function FeaturedBanner({ isMobile }: { isMobile: boolean }) {
-  const featured = GAMES[0];
+function GameOfTheDayBanner({ game, isMobile }: { game: GameConfig; isMobile: boolean }) {
+  const category = getCategoryConfig(game.category);
   return (
     <View style={[s.featured, isMobile && s.featuredMobile]}>
       <View>
         <View style={s.featuredEyebrowRow}>
-          <Text style={s.eyebrow}>Featured Game</Text>
-          <View style={s.hotPill}><Text style={s.hotText}>Most Played</Text></View>
+          <Text style={s.eyebrow}>Game of the Day</Text>
+          <View style={s.hotPill}><Text style={s.hotText}>{category.title}</Text></View>
         </View>
-        <Text style={s.featuredTitle}>{featured.title}</Text>
-        <Text style={s.featuredText}>{featured.desc}</Text>
-        <TouchableOpacity style={s.featuredBtn} onPress={() => openGame(featured.id)}>
+        <Text style={s.featuredTitle}>{game.title}</Text>
+        <Text style={s.featuredText}>{game.desc}</Text>
+        <TouchableOpacity style={s.featuredBtn} onPress={() => openGame(game.id)}>
           <Feather name="play" size={13} color="#FFFFFF" />
-          <Text style={s.featuredBtnText}>Play Now</Text>
+          <Text style={s.featuredBtnText}>Play Today</Text>
         </TouchableOpacity>
       </View>
       <View style={s.featuredOrb}>
         <View style={s.featuredOrbInner}>
-          <MaterialCommunityIcons name="brain" size={38} color="rgba(255,255,255,0.86)" />
+          <MaterialCommunityIcons name={game.icon} size={38} color="rgba(255,255,255,0.86)" />
         </View>
       </View>
     </View>
+  );
+}
+
+function SearchResultCard({
+  game,
+  isFavourite,
+  onToggleFavourite,
+}: {
+  game: GameConfig;
+  isFavourite: boolean;
+  onToggleFavourite: (gameId: string) => void;
+}) {
+  const diff = difficultyStyle(game.difficulty);
+  const category = getCategoryConfig(game.category);
+
+  return (
+    <TouchableOpacity style={s.searchResultCard} disabled={!game.unlocked} onPress={() => openGame(game.id)}>
+      <View style={[s.searchResultIcon, { backgroundColor: game.color }]}>
+        <MaterialCommunityIcons name={game.icon} size={21} color="#FFFFFF" />
+      </View>
+      <View style={s.searchResultContent}>
+        <View style={s.searchResultTop}>
+          <Text style={s.searchResultCategory}>{category.title}</Text>
+          <View style={[s.searchResultBadge, { backgroundColor: diff.bg }]}>
+            <Text style={[s.searchResultBadgeText, { color: diff.color }]}>{game.difficulty}</Text>
+          </View>
+        </View>
+        <Text style={s.searchResultTitle}>{game.title}</Text>
+        <Text style={s.searchResultDesc}>{game.desc}</Text>
+      </View>
+      <TouchableOpacity
+        style={[s.searchResultFavourite, isFavourite && s.searchResultFavouriteActive]}
+        onPress={(event) => {
+          event.stopPropagation?.();
+          onToggleFavourite(game.id);
+        }}
+      >
+        <Feather name="heart" size={14} color={isFavourite ? "#FFFFFF" : "rgba(18,18,18,0.42)"} />
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 
@@ -172,7 +257,7 @@ function AnimatedGameCard({
       toValue: position,
       duration: 3680,
       easing: Easing.bezier(0.16, 1, 0.3, 1),
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     }).start();
   }, [motion, position]);
 
@@ -220,11 +305,30 @@ function CategoryCarousel({
   favouriteIds: string[];
   onToggleFavourite: (gameId: string) => void;
 }) {
+  const { width } = useWindowDimensions();
   const color = category.color;
+  const useNativeImageFit = isCompact && Platform.OS !== "web";
+  const useNativeRailFit = isCompact && Platform.OS !== "web";
+  const isNativeApp = Platform.OS !== "web";
+  const isWebDesktop = Platform.OS === "web" && !isCompact;
+  const compactCardWidth = useNativeRailFit ? Math.min(MOBILE_CARD_WIDTH, Math.max(246, width - 84)) : MOBILE_CARD_WIDTH;
+  const compactCardStride = compactCardWidth + MOBILE_CARD_GAP;
+  const compactCardSidePadding = useNativeRailFit ? 18 : 28;
   const [step, setStep] = useState(0);
+  const railRef = useRef<ScrollView | null>(null);
   const currentIndex = ((step % games.length) + games.length) % games.length;
 
+  function scrollToGame(index: number, animated = true) {
+    railRef.current?.scrollTo({ x: index * compactCardStride, y: 0, animated });
+  }
+
   function handleChipPress(index: number) {
+    if (isCompact) {
+      setStep(index);
+      scrollToGame(index);
+      return;
+    }
+
     const forward = (index - currentIndex + games.length) % games.length;
     const backward = (currentIndex - index + games.length) % games.length;
     const direction = forward <= backward ? 1 : -1;
@@ -234,47 +338,133 @@ function CategoryCarousel({
     setStep((prev) => prev + direction * distance);
   }
 
+  function handleRailScrollEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const offset = Number(event.nativeEvent.contentOffset?.x ?? 0);
+    const nextIndex = Math.max(0, Math.min(games.length - 1, Math.round(offset / compactCardStride)));
+    if (nextIndex !== currentIndex) setStep(nextIndex);
+  }
+
   return (
-    <View style={s.carouselSection}>
+    <View style={[s.carouselSection, isCompact && s.carouselSectionCompact]}>
       <View style={s.rowHeader}>
         <View style={[s.rowMarker, { backgroundColor: color }]} />
-        <Text style={s.rowTitle}>{category.title}</Text>
-        <Text style={s.rowCount}>{games.length} games</Text>
+        <Text style={[s.rowTitle, isNativeApp && s.rowTitleApp, isWebDesktop && s.rowTitleWebLight]}>{category.title}</Text>
+        <Text style={[s.rowCount, isNativeApp && s.rowCountApp, isWebDesktop && s.rowCountWebLight]}>{games.length} games</Text>
       </View>
 
-      <View style={[s.carouselShell, isCompact && s.carouselShellCompact]}>
-        <View style={[s.categoryPanel, { backgroundColor: color }, isCompact && s.categoryPanelCompact]}>
-          {category.image && (
-            <>
-              <Image source={category.image} style={s.categoryBgImage} resizeMode="cover" />
-              <View style={s.categoryBgWash} pointerEvents="none" />
-            </>
-          )}
-          <View style={s.categoryContent}>
-            <View style={s.categoryHero}>
-              <Text style={s.categoryHeroEmoji}>{category.emoji}</Text>
+      <View style={[s.carouselShell, isWebDesktop && s.carouselShellWebLight, isCompact && s.carouselShellCompact, isNativeApp && s.carouselShellApp]}>
+        {category.image ? (
+          <ImageBackground
+            source={category.image}
+            style={[
+              s.categoryPanel,
+              { backgroundColor: (isNativeApp || isWebDesktop) ? "#FFFFFF" : color },
+              isWebDesktop && s.categoryPanelWebPoster,
+              isCompact && s.categoryPanelCompact,
+              isNativeApp && s.categoryPanelApp,
+            ]}
+            imageStyle={[
+              s.categoryBgImage,
+              isWebDesktop && s.categoryBgImageWebPoster,
+              isCompact && s.categoryBgImageCompact,
+              useNativeImageFit && s.categoryBgImageNativeFit,
+            ]}
+            resizeMode={useNativeImageFit ? "contain" : "cover"}
+          >
+            {isWebDesktop && (
+              <View style={s.categoryPosterArtworkClip} pointerEvents="none">
+                <Image source={category.image} resizeMode="contain" style={s.categoryPosterArtwork} />
+              </View>
+            )}
+            <View style={[s.categoryBgWash, isWebDesktop && s.categoryBgWashWebPoster, isNativeApp && s.categoryBgWashApp]} pointerEvents="none" />
+            {isWebDesktop && (
+              <>
+                <View style={s.categoryPosterGlow} pointerEvents="none" />
+                <View style={s.categoryPosterFrame} pointerEvents="none" />
+              </>
+            )}
+            <View style={[s.categoryContent, isWebDesktop && s.categoryContentWebPoster]}>
+              <View style={[s.categoryHero, isWebDesktop && s.categoryHeroWebPoster]}>
+                <Text style={s.categoryHeroEmoji}>{category.emoji}</Text>
+              </View>
+              <Text style={[s.categoryTitle, isNativeApp && s.categoryTitleApp, isWebDesktop && s.categoryTitleWebPoster]}>{category.title}</Text>
+              <Text style={[s.categorySub, isNativeApp && s.categorySubApp, isWebDesktop && s.categorySubWebPoster]}>{category.description}</Text>
+              <View style={[s.pillWrap, !isCompact && s.pillWrapVertical]}>
+                {games.map((game, index) => (
+                  <TouchableOpacity
+                    key={game.id}
+                    style={[
+                      s.categoryPill,
+                      isWebDesktop && s.categoryPillWebPoster,
+                      isNativeApp && s.categoryPillApp,
+                      index === currentIndex && s.categoryPillActive,
+                      isWebDesktop && index === currentIndex && s.categoryPillActiveWebPoster,
+                      isNativeApp && index === currentIndex && s.categoryPillActiveApp,
+                    ]}
+                    onPress={() => handleChipPress(index)}
+                  >
+                    <MaterialCommunityIcons name={game.icon} size={15} color={index === currentIndex ? color : (isNativeApp || isWebDesktop) ? "#4B5563" : "rgba(255,255,255,0.56)"} />
+                    <Text style={[s.categoryPillText, isWebDesktop && s.categoryPillTextWebPoster, isNativeApp && s.categoryPillTextApp, index === currentIndex && s.categoryPillTextActive]}>{game.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-            <Text style={s.categoryTitle}>{category.title}</Text>
-            <Text style={s.categorySub}>{category.description}</Text>
-            <View style={[s.pillWrap, !isCompact && s.pillWrapVertical]}>
-              {games.map((game, index) => (
-                <TouchableOpacity
-                  key={game.id}
-                  style={[s.categoryPill, index === currentIndex && s.categoryPillActive]}
-                  onPress={() => handleChipPress(index)}
-                >
-                  <MaterialCommunityIcons name={game.icon} size={15} color={index === currentIndex ? color : "rgba(255,255,255,0.56)"} />
-                  <Text style={[s.categoryPillText, index === currentIndex && s.categoryPillTextActive]}>{game.title}</Text>
-                </TouchableOpacity>
-              ))}
+          </ImageBackground>
+        ) : (
+          <View style={[s.categoryPanel, { backgroundColor: (isNativeApp || isWebDesktop) ? "#FFFFFF" : color }, isWebDesktop && s.categoryPanelWebLight, isCompact && s.categoryPanelCompact, isNativeApp && s.categoryPanelApp]}>
+            <View style={[s.categoryBgWash, isWebDesktop && s.categoryBgWashWebLight, isNativeApp && s.categoryBgWashApp]} pointerEvents="none" />
+            <View style={s.categoryContent}>
+              <View style={s.categoryHero}>
+                <Text style={s.categoryHeroEmoji}>{category.emoji}</Text>
+              </View>
+              <Text style={[s.categoryTitle, isNativeApp && s.categoryTitleApp, isWebDesktop && s.categoryTitleWebLight]}>{category.title}</Text>
+              <Text style={[s.categorySub, isNativeApp && s.categorySubApp, isWebDesktop && s.categorySubWebLight]}>{category.description}</Text>
+              <View style={[s.pillWrap, !isCompact && s.pillWrapVertical]}>
+                {games.map((game, index) => (
+                  <TouchableOpacity
+                    key={game.id}
+                    style={[s.categoryPill, isWebDesktop && s.categoryPillWebLight, isNativeApp && s.categoryPillApp, index === currentIndex && s.categoryPillActive, isNativeApp && index === currentIndex && s.categoryPillActiveApp]}
+                    onPress={() => handleChipPress(index)}
+                  >
+                    <MaterialCommunityIcons name={game.icon} size={15} color={index === currentIndex ? color : (isNativeApp || isWebDesktop) ? "#6A7A86" : "rgba(255,255,255,0.56)"} />
+                    <Text style={[s.categoryPillText, isWebDesktop && s.categoryPillTextWebLight, isNativeApp && s.categoryPillTextApp, index === currentIndex && s.categoryPillTextActive]}>{game.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
-        <View style={s.cardRail}>
+        <View style={[s.cardRail, isCompact && s.cardRailCompact]}>
+          {!isCompact && <View pointerEvents="none" style={s.cardRailBackdrop} />}
           {isCompact ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.cardRailScroll}>
-              {games.map((game) => <GameCard key={game.id} game={game} isFavourite={favouriteIds.includes(game.id)} onToggleFavourite={onToggleFavourite} />)}
+            <ScrollView
+              ref={railRef}
+              nativeID="games-card-rail-scroller"
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={s.cardRailScroller}
+              contentContainerStyle={[s.cardRailScroll, s.cardRailScrollCompact, { paddingLeft: compactCardSidePadding, paddingRight: compactCardSidePadding }]}
+              decelerationRate="fast"
+              snapToInterval={compactCardStride}
+              snapToAlignment="start"
+              disableIntervalMomentum
+              directionalLockEnabled
+              nestedScrollEnabled
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={handleRailScrollEnd}
+              onScrollEndDrag={handleRailScrollEnd}
+              {...({ onWheelCapture: passVerticalWheelToParent } as any)}
+            >
+              {games.map((game) => (
+                <GameCard
+                  key={game.id}
+                  game={game}
+                  isFavourite={favouriteIds.includes(game.id)}
+                  onToggleFavourite={onToggleFavourite}
+                  cardStyle={useNativeRailFit && { width: compactCardWidth }}
+                />
+              ))}
             </ScrollView>
           ) : (
             <View style={s.cardStack}>
@@ -301,19 +491,13 @@ export default function GamesScreen() {
   const { width } = useWindowDimensions();
   const [search, setSearch] = useState("");
   const [searchFocus, setSearchFocus] = useState(false);
-  const [favouriteIds, setFavouriteIds] = useState<string[]>([]);
+  const { favouriteIds, toggleFavourite } = useFavouriteGames();
   const isCompact = width < 980;
   const isMobile = width < 640;
+  const isNativeApp = Platform.OS !== "web";
 
   const categories = useMemo(() => gamesByCategory(), []);
-
-  useEffect(() => {
-    setFavouriteIds(getFavouriteGameIds());
-  }, []);
-
-  const handleToggleFavourite = useCallback((gameId: string) => {
-    setFavouriteIds(toggleFavouriteGame(gameId));
-  }, []);
+  const dailyGame = useMemo(() => gameOfTheDay(), []);
 
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -328,43 +512,51 @@ export default function GamesScreen() {
       active="games"
       title="Games"
       subtitle={`${GAMES.length} available · all games unlocked for preview`}
-      beige
       headerAction={(
-        <View style={[s.searchBar, searchFocus && s.searchBarFocus]}>
-          <Feather name="search" size={15} color={searchFocus ? "#E85D2A" : "rgba(255,255,255,0.48)"} />
+        <View style={[s.searchBar, isNativeApp && s.searchBarApp, searchFocus && s.searchBarFocus, searchFocus && isNativeApp && s.searchBarFocusApp]}>
+          <Feather name="search" size={15} color={searchFocus ? (isNativeApp ? "#0F7EA8" : "#E85D2A") : isNativeApp ? "#7A8A95" : "rgba(255,255,255,0.48)"} />
           <TextInput
             value={search}
             onChangeText={setSearch}
             onFocus={() => setSearchFocus(true)}
             onBlur={() => setSearchFocus(false)}
             placeholder="Search games, categories..."
-            placeholderTextColor="rgba(255,255,255,0.42)"
-            style={s.searchInput}
+            placeholderTextColor={isNativeApp ? "#8A99A4" : "rgba(255,255,255,0.42)"}
+            style={[s.searchInput, isNativeApp && s.searchInputApp, isMobile && s.searchInputMobile]}
           />
           {search.length > 0 && (
             <TouchableOpacity style={s.clearSearch} onPress={() => setSearch("")}>
-              <Feather name="x" size={13} color="rgba(255,255,255,0.48)" />
+              <Feather name="x" size={13} color={isNativeApp ? "#7A8A95" : "rgba(255,255,255,0.48)"} />
             </TouchableOpacity>
           )}
         </View>
       )}
     >
-      <View style={s.page}>
-        <View style={[s.pageInner, isMobile && s.pageInnerMobile]}>
+      <View style={[s.page, isNativeApp && s.pageApp]}>
+        <View style={[s.pageInner, isNativeApp && s.pageInnerApp, isMobile && s.pageInnerMobile]}>
           {search.trim() ? (
             <View>
               <Text style={s.searchMeta}>
                 {results.length} result{results.length === 1 ? "" : "s"} for <Text style={s.searchMetaStrong}>{`"${search.trim()}"`}</Text>
               </Text>
               {results.length > 0 ? (
-                <View style={s.searchGrid}>
+                <View style={[s.searchGrid, isMobile && s.searchGridMobile]}>
                   {results.map((game) => (
-                    <GameCard
-                      key={game.id}
-                      game={game}
-                      isFavourite={favouriteIds.includes(game.id)}
-                      onToggleFavourite={handleToggleFavourite}
-                    />
+                    isMobile ? (
+                      <SearchResultCard
+                        key={game.id}
+                        game={game}
+                        isFavourite={favouriteIds.includes(game.id)}
+                        onToggleFavourite={toggleFavourite}
+                      />
+                    ) : (
+                      <GameCard
+                        key={game.id}
+                        game={game}
+                        isFavourite={favouriteIds.includes(game.id)}
+                        onToggleFavourite={toggleFavourite}
+                      />
+                    )
                   ))}
                 </View>
               ) : (
@@ -375,7 +567,7 @@ export default function GamesScreen() {
             </View>
           ) : (
             <>
-              <FeaturedBanner isMobile={isMobile} />
+              {!isMobile && !isNativeApp && <GameOfTheDayBanner game={dailyGame} isMobile={isMobile} />}
               {categories.map(({ category, games }) => (
                 <CategoryCarousel
                   key={category.id}
@@ -383,7 +575,7 @@ export default function GamesScreen() {
                   games={games}
                   isCompact={isCompact}
                   favouriteIds={favouriteIds}
-                  onToggleFavourite={handleToggleFavourite}
+                  onToggleFavourite={toggleFavourite}
                 />
               ))}
             </>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity, useWindowDimensions } from "react-native";
 import { vault as vs } from "./VaultSection.styles";
 
 // ── Vault ─────────────────────────────────────────────────────────────────────
@@ -11,20 +11,22 @@ const TECHNIQUES = [
 ];
 
 export default function VaultSection() {
+  const { width } = useWindowDimensions();
   const [active, setActive] = useState(0);
   const t = TECHNIQUES[active];
+  const isMobile = width < 760;
   return (
-    <View nativeID="vault" style={vs.section}>
-      <View style={vs.inner}>
+    <View nativeID="vault" style={[vs.section, isMobile && vs.sectionMobile]}>
+      <View style={[vs.inner, isMobile && vs.innerMobile]}>
         <View>
           <Text style={vs.eyebrow}>The Vault</Text>
-          <Text style={vs.h2}>Real techniques,{"\n"}not tricks</Text>
-          <Text style={vs.subText}>
+          <Text style={[vs.h2, isMobile && vs.h2Mobile]}>Real techniques,{"\n"}not tricks</Text>
+          <Text style={[vs.subText, isMobile && vs.subTextMobile]}>
             Every session teaches a proven cognitive method used by memory champions, chess grandmasters, and elite students.
           </Text>
           <View style={vs.tabList}>
             {TECHNIQUES.map((tech, i) => (
-              <TouchableOpacity key={i} style={[vs.tab, active === i ? vs.tabActive : vs.tabInactive]} onPress={() => setActive(i)}>
+              <TouchableOpacity key={i} style={[vs.tab, isMobile && vs.tabMobile, active === i ? vs.tabActive : vs.tabInactive]} onPress={() => setActive(i)}>
                 <View style={[vs.tabDot, active === i ? vs.tabDotActive : vs.tabDotInactive]} />
                 <View>
                   <Text style={[vs.tabCat,   active === i ? vs.tabCatActive   : vs.tabCatInactive]}>{tech.cat}</Text>
@@ -34,9 +36,9 @@ export default function VaultSection() {
             ))}
           </View>
         </View>
-        <View style={[vs.detailCard, (vs as any)[`detailCardBg${active}`]]}>
+        <View style={[vs.detailCard, isMobile && vs.detailCardMobile, (vs as any)[`detailCardBg${active}`]]}>
           <Text style={vs.detailCat}>{t.cat}</Text>
-          <Text style={vs.detailTitle}>{t.title}</Text>
+          <Text style={[vs.detailTitle, isMobile && vs.detailTitleMobile]}>{t.title}</Text>
           <Text style={vs.detailDesc}>{t.desc}</Text>
           <View style={vs.exampleBox}>
             <Text style={vs.exampleLabel}>Example</Text>

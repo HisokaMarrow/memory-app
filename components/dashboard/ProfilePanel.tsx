@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Animated, Image, Modal, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Image, Modal, Platform, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import type { User } from "@supabase/supabase-js";
@@ -41,7 +41,7 @@ export default function ProfilePanel({
       Animated.timing(motion, {
         toValue: 1,
         duration: 180,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web",
       }).start();
       return;
     }
@@ -49,7 +49,7 @@ export default function ProfilePanel({
     Animated.timing(motion, {
       toValue: 0,
       duration: 150,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     }).start(({ finished }) => {
       if (finished) setMounted(false);
     });
@@ -65,7 +65,7 @@ export default function ProfilePanel({
 
     if (visible) refreshProfileStats();
 
-    if (typeof window === "undefined") return () => {
+    if (typeof window === "undefined" || typeof window.addEventListener !== "function") return () => {
       alive = false;
     };
 
@@ -101,7 +101,7 @@ export default function ProfilePanel({
     },
     {
       title: "Digit Climber",
-      text: "Reach a 20 digit recall goal.",
+      text: "Clear a 20 digit recall protocol.",
       icon: "📈",
       progress: Math.min(100, Math.round((gameStats.bestDigits / 20) * 100)),
       unlocked: gameStats.bestDigits >= 20,
@@ -127,6 +127,13 @@ export default function ProfilePanel({
         if (user) {
           await supabase.auth.updateUser({
             data: { avatar_image_uri: nextImageUri, avatar_color: avatarColor, full_name: profileName },
+          });
+          await supabase.from("profiles").upsert({
+            id: user.id,
+            display_name: profileName,
+            avatar_color: avatarColor,
+            avatar_image_uri: nextImageUri,
+            updated_at: new Date().toISOString(),
           });
         }
       };
@@ -184,7 +191,16 @@ export default function ProfilePanel({
                     {!!avatarImageUri && (
                       <TouchableOpacity style={s.ghostBtn} onPress={async () => {
                         onAvatarImageChange("");
-                        if (user) await supabase.auth.updateUser({ data: { avatar_image_uri: "" } });
+                        if (user) {
+                          await supabase.auth.updateUser({ data: { avatar_image_uri: "" } });
+                          await supabase.from("profiles").upsert({
+                            id: user.id,
+                            display_name: profileName,
+                            avatar_color: avatarColor,
+                            avatar_image_uri: "",
+                            updated_at: new Date().toISOString(),
+                          });
+                        }
                       }}>
                         <Feather name="trash-2" size={14} color="#FFFFFF" />
                         <Text style={s.ghostText}>Remove icon</Text>
@@ -211,7 +227,7 @@ export default function ProfilePanel({
 
               <View style={s.section}>
                 <View style={s.sectionHeader}>
-                  <View>
+                  <View style={s.sectionHeaderCopy}>
                     <Text style={s.sectionTitle}>Achievements</Text>
                     <Text style={s.sectionSub}>Progress badges that make training feel earned.</Text>
                   </View>

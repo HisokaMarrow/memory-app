@@ -1,13 +1,15 @@
 import { useEffect, useState, useRef } from "react";
-import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
 import FooterSection from "../components/layout/FooterSection";
 import NavBar from "../components/layout/NavBar";
+import { setActiveResultsUser } from "../components/games/resultsStore";
 import { layout } from "../styles/layout";
 import { login } from "../styles/screens/login.styles";
 
 export default function LoginPage() {
+  const { width } = useWindowDimensions();
   const [email,     setEmail]     = useState("");
   const [password,  setPassword]  = useState("");
   const [showPass,  setShowPass]  = useState(false);
@@ -16,6 +18,7 @@ export default function LoginPage() {
   const [focused,   setFocused]   = useState<string | null>(null);
   const [error,     setError]     = useState("");
   const [checkingSession, setCheckingSession] = useState(true);
+  const isMobile = width < 640;
 
   const passwordRef = useRef<TextInput>(null);
 
@@ -29,12 +32,18 @@ export default function LoginPage() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!alive) return;
-      if (session?.user) router.replace("/dashboard");
+      if (session?.user) {
+        setActiveResultsUser(session.user.id);
+        router.replace("/dashboard");
+      }
       else setCheckingSession(false);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) router.replace("/dashboard");
+      if (session?.user) {
+        setActiveResultsUser(session.user.id);
+        router.replace("/dashboard");
+      }
       else setCheckingSession(false);
     });
 
@@ -54,9 +63,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (mode === "signin") {
-        const { error: err } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+        const { data, error: err } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (err) setError(err.message);
-        else router.replace("/dashboard");
+        else {
+          if (data.user) setActiveResultsUser(data.user.id);
+          router.replace("/dashboard");
+        }
       } else {
         const { data, error: err } = await supabase.auth.signUp({
           email: cleanEmail,
@@ -66,7 +78,10 @@ export default function LoginPage() {
           },
         });
         if (err) setError(err.message);
-        else if (data.session) router.replace("/dashboard");
+        else if (data.session?.user) {
+          setActiveResultsUser(data.session.user.id);
+          router.replace("/dashboard");
+        }
         else setError("Check your email for a confirmation link.");
       }
     } finally {
@@ -102,6 +117,10 @@ export default function LoginPage() {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
         },
       });
       if (err) setError(err.message);
@@ -138,10 +157,10 @@ export default function LoginPage() {
         style={layout.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <View style={login.scrollInner}>
+        <View style={[login.scrollInner, isMobile && login.scrollInnerMobile]}>
         {/* Centred card */}
-        <View style={login.main}>
-          <View style={login.card}>
+        <View style={[login.main, isMobile && login.mainMobile]}>
+          <View style={[login.card, isMobile && login.cardMobile]}>
 
             {/* Logo */}
             <View style={login.logoRow}>
@@ -180,7 +199,7 @@ export default function LoginPage() {
               <View style={login.fieldWrap}>
                 <Text style={login.label}>Email</Text>
                 <TextInput
-                  style={[login.input, focused === "email" && login.inputFocused]}
+                  style={[login.input, isMobile && login.inputMobile, focused === "email" && login.inputFocused]}
                   value={email}
                   onChangeText={(value) => { setEmail(value); if (error && !isSuccess) setError(""); }}
                   placeholder="you@example.com"
@@ -205,7 +224,7 @@ export default function LoginPage() {
                 <View style={login.passWrap}>
                   <TextInput
                     ref={passwordRef}
-                    style={[login.input, login.inputPass, focused === "password" && login.inputFocused]}
+                    style={[login.input, isMobile && login.inputMobile, login.inputPass, focused === "password" && login.inputFocused]}
                     value={password}
                     onChangeText={(value) => { setPassword(value); if (error && !isSuccess) setError(""); }}
                     placeholder="••••••••"

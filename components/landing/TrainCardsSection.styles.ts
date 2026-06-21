@@ -8,8 +8,13 @@ export const train = createWebStyles({
     paddingHorizontal: 56,
     backgroundColor:   P.cream,
   },
+  sectionMobile: {
+    paddingVertical:   64,
+    paddingHorizontal: 20,
+  },
   inner: INNER_W as any,
   head:  { marginBottom: 60 },
+  headMobile: { marginBottom: 34 },
   eyebrow: {
     fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
     fontSize:      13,
@@ -24,13 +29,24 @@ export const train = createWebStyles({
     fontSize:      50,
     fontWeight:    "600" as const,
     color:         P.green,
-    letterSpacing: -1.0,
+    letterSpacing: 0,
     lineHeight:    56,
+  },
+  h2Mobile: {
+    fontSize:   38,
+    lineHeight: 42,
   },
   grid: {
     display:             "grid" as any,
     gridTemplateColumns: "repeat(4, 1fr)" as any,
     gap:                 18,
+  },
+  gridTablet: {
+    gridTemplateColumns: "repeat(2, 1fr)" as any,
+  },
+  gridMobile: {
+    gridTemplateColumns: "1fr" as any,
+    gap:                 14,
   },
   card: {
     backgroundColor: P.pureWhite,
@@ -41,6 +57,13 @@ export const train = createWebStyles({
     cursor:          "pointer" as any,
     position:        "relative",
     transition:      "transform 0.25s, box-shadow 0.25s" as any,
+  },
+  cardMobile: {
+    padding: 22,
+  },
+  cardHover: {
+    transform: "translateY(-6px)" as any,
+    boxShadow: "0 20px 48px rgba(0,0,0,0.12)" as any,
   },
   cardBadge: {
     position:          "absolute",
@@ -67,6 +90,12 @@ export const train = createWebStyles({
     alignItems:      "center",
     justifyContent:  "center",
     marginBottom:    18,
+  },
+  cardIconMobile: {
+    width:        42,
+    height:       42,
+    borderRadius: 10,
+    marginBottom: 14,
   },
   cardIconText:  { fontSize: 22 },
   cardTitle: {

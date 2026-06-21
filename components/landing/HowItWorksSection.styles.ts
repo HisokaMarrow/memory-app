@@ -8,12 +8,21 @@ export const how = createWebStyles({
     paddingHorizontal: 56,
     backgroundColor:   P.creamAlt,
   },
+  sectionMobile: {
+    paddingVertical:   64,
+    paddingHorizontal: 20,
+  },
   inner: {
     ...INNER_W,
     display:             "grid" as any,
     gridTemplateColumns: "1fr 1fr" as any,
     gap:                 80,
     alignItems:          "center" as any,
+  },
+  innerMobile: {
+    display:             "grid" as any,
+    gridTemplateColumns: "1fr" as any,
+    gap:                 38,
   },
   eyebrow: {
     fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
@@ -29,9 +38,13 @@ export const how = createWebStyles({
     fontSize:      50,
     fontWeight:    "600" as const,
     color:         P.green,
-    letterSpacing: -1.0,
+    letterSpacing: 0,
     lineHeight:    56,
     marginBottom:  18,
+  },
+  h2Mobile: {
+    fontSize:   38,
+    lineHeight: 42,
   },
   subText: {
     fontFamily: "Cormorant Garamond, Georgia, serif" as any,
@@ -40,10 +53,18 @@ export const how = createWebStyles({
     lineHeight: 29,
     maxWidth:   360,
   },
+  subTextMobile: {
+    fontSize:   15,
+    lineHeight: 24,
+    maxWidth:   "100%" as any,
+  },
   stepRow: {
     flexDirection: "row",
     gap:           22,
     alignItems:    "flex-start",
+  },
+  stepRowMobile: {
+    gap: 16,
   },
   stepLeft: {
     flexDirection: "column",
@@ -57,6 +78,11 @@ export const how = createWebStyles({
     alignItems:      "center",
     justifyContent:  "center",
     flexShrink:      0,
+  },
+  stepIconWrapMobile: {
+    width:        46,
+    height:       46,
+    borderRadius: 12,
   },
   stepIconText: {
     fontSize: 22,

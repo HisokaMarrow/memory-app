@@ -32,6 +32,20 @@ export const C = {
   orangeBg:     "#FEF0EB",
 } as const;
 
+export const COLOR = {
+  accent:       C.orange,
+  accentLight:  C.orangeLight,
+  accentBg:     C.orangeBg,
+  surface:      C.white,
+  surfaceMuted: C.cream,
+  surfaceDark:  C.bgForestDeep,
+  text:         C.text,
+  textBody:     C.body,
+  textMuted:    C.muted,
+  textInverse:  C.textInverse,
+  border:       C.border,
+} as const;
+
 export const FONT = {
   display: { fontSize: 64, fontWeight: "800" as const, letterSpacing: -1.5, lineHeight: 70 },
   hero:    { fontSize: 56, fontWeight: "800" as const, letterSpacing: -1.2, lineHeight: 62 },

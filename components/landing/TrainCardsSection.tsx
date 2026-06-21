@@ -1,5 +1,5 @@
-import { View, Text } from "react-native";
-import { HOVER } from "../../styles/web";
+import { useState } from "react";
+import { View, Text, useWindowDimensions } from "react-native";
 import { train as trs } from "./TrainCardsSection.styles";
 
 // ── Train Cards ───────────────────────────────────────────────────────────────
@@ -11,24 +11,29 @@ const CARDS = [
 ];
 
 export default function TrainCardsSection() {
+  const { width } = useWindowDimensions();
+  const [hovered, setHovered] = useState<string | null>(null);
+  const isMobile = width < 700;
+  const isTablet = width < 1020;
+
   return (
-    <View nativeID="what-you-train" style={trs.section}>
+    <View nativeID="what-you-train" style={[trs.section, isMobile && trs.sectionMobile]}>
       <View style={trs.inner}>
-        <View style={trs.head}>
+        <View style={[trs.head, isMobile && trs.headMobile]}>
           <Text style={trs.eyebrow}>What You Train</Text>
-          <Text style={trs.h2}>Four pillars of{"\n"}a sharper mind</Text>
+          <Text style={[trs.h2, isMobile && trs.h2Mobile]}>Four pillars of{"\n"}a sharper mind</Text>
         </View>
-        <View style={trs.grid}>
+        <View style={[trs.grid, isTablet && trs.gridTablet, isMobile && trs.gridMobile]}>
           {CARDS.map((card) => (
             <View
               key={card.title}
-              style={trs.card}
-              // @ts-ignore
-              onMouseEnter={(e: any) => { e.currentTarget.style.transform = HOVER.cardHoverTransform; e.currentTarget.style.boxShadow = HOVER.cardHoverShadow; }}
-              onMouseLeave={(e: any) => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+              style={[trs.card, isMobile && trs.cardMobile, !isMobile && hovered === card.title && trs.cardHover]}
+              // @ts-ignore web-only hover
+              onMouseEnter={() => setHovered(card.title)}
+              onMouseLeave={() => setHovered(null)}
             >
               {card.badge && <View style={trs.cardBadge}><Text style={trs.cardBadgeText}>⭐ Popular</Text></View>}
-              <View style={trs.cardIcon}><Text style={trs.cardIconText}>{card.icon}</Text></View>
+              <View style={[trs.cardIcon, isMobile && trs.cardIconMobile]}><Text style={trs.cardIconText}>{card.icon}</Text></View>
               <Text style={trs.cardTitle}>{card.title}</Text>
               <Text style={trs.cardDesc}>{card.desc}</Text>
               <View style={trs.cardDivider}>

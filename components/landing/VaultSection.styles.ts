@@ -8,12 +8,21 @@ export const vault = createWebStyles({
     paddingHorizontal: 56,
     backgroundColor:   P.cream,
   },
+  sectionMobile: {
+    paddingVertical:   64,
+    paddingHorizontal: 20,
+  },
   inner: {
     ...INNER_W,
     display:             "grid" as any,
     gridTemplateColumns: "1fr 1.2fr" as any,
     gap:                 72,
     alignItems:          "start" as any,
+  },
+  innerMobile: {
+    display:             "grid" as any,
+    gridTemplateColumns: "1fr" as any,
+    gap:                 32,
   },
   eyebrow: {
     fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
@@ -29,9 +38,13 @@ export const vault = createWebStyles({
     fontSize:      50,
     fontWeight:    "600" as const,
     color:         P.green,
-    letterSpacing: -1.0,
+    letterSpacing: 0,
     lineHeight:    56,
     marginBottom:  18,
+  },
+  h2Mobile: {
+    fontSize:   38,
+    lineHeight: 42,
   },
   subText: {
     fontFamily:   "Cormorant Garamond, Georgia, serif" as any,
@@ -39,6 +52,11 @@ export const vault = createWebStyles({
     color:        P.textMid,
     lineHeight:   27,
     marginBottom: 36,
+  },
+  subTextMobile: {
+    fontSize:     15,
+    lineHeight:   24,
+    marginBottom: 26,
   },
   tabList: {
     flexDirection: "column",
@@ -54,6 +72,10 @@ export const vault = createWebStyles({
     borderWidth:       1,
     cursor:            "pointer" as any,
     transition:        "all 0.2s" as any,
+  },
+  tabMobile: {
+    paddingHorizontal: 14,
+    paddingVertical:   13,
   },
   tabDot: {
     width:        7,
@@ -77,6 +99,10 @@ export const vault = createWebStyles({
     padding:      44,
     boxShadow:    "0 20px 56px rgba(0,0,0,0.20)" as any,
   },
+  detailCardMobile: {
+    borderRadius: 16,
+    padding:      24,
+  },
   detailCat: {
     fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
     fontSize:      12,
@@ -92,6 +118,10 @@ export const vault = createWebStyles({
     color:        P.white,
     marginBottom: 18,
     lineHeight:   40,
+  },
+  detailTitleMobile: {
+    fontSize:   28,
+    lineHeight: 34,
   },
   detailDesc: {
     fontFamily:   "Cormorant Garamond, Georgia, serif" as any,

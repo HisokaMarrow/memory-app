@@ -1,62 +1,50 @@
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Modal, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import DashboardShell from "../components/dashboard/DashboardShell";
-import { getDailyPlanGames, getFavouriteGameIds, getUserGoals, saveUserGoals, type UserGoal } from "../components/games/gamePreferences";
-import { calculateGameStats, loadGameResults, type StoredGameResult } from "../components/games/resultsStore";
-import { GAME_CATEGORIES, GAMES, getCategoryConfig, type GameConfig } from "../data/gamesCatalog";
+import {
+  buildGraphAxisLabels,
+  buildGraphGeometry,
+  buildPerformanceTimeline,
+  GRAPH_PADDING,
+  GRAPH_SCALE_ORDER,
+  GRAPH_SCALES,
+  localDayKey,
+  pointsForResult,
+  type GraphScale,
+} from "../components/dashboard/performanceGraphModel";
+import { getDailyPlanGames, getFavouriteGameIds, getUserQuests, loadUserPreferences, saveUserQuests, type UserQuest } from "../components/games/gamePreferences";
+import { calculateGameStats, loadGameResults, loadLeaderboard, readLocalGameResultsSnapshot, type LeaderboardEntry, type StoredGameResult } from "../components/games/resultsStore";
+import {
+  MEMORY_LESSONS,
+  getCachedLatestVaultTreeId,
+  getCachedMemoryVaultProgress,
+  loadLatestVaultTreeId,
+  loadMemoryVaultProgress,
+  memoryVaultProgressEventName,
+} from "../components/vault/memoryVaultProgress";
+import { GAMES, getCategoryConfig, type GameConfig } from "../data/gamesCatalog";
 import { dashboard as s } from "../styles/screens/dashboard.styles";
 
 const PERSIST_KEY = "memoro-dashboard-state";
 
-const TECHNIQUES = [
-  { name: "Chunking Method", unlocked: true },
-  { name: "Memory Palace", unlocked: true },
-  { name: "Spaced Repetition", unlocked: false },
-  { name: "Mind Mapping", unlocked: false },
-  { name: "Peg System", unlocked: false },
+function canUseWindowEvents() {
+  return Platform.OS === "web" && typeof window !== "undefined" && typeof window.addEventListener === "function";
+}
+
+const LEADERBOARD_FILTERS = ["Global"] as const;
+type LeaderboardFilter = typeof LEADERBOARD_FILTERS[number];
+
+const QUEST_RANKS = [
+  { name: "Wanderer", xp: 0 },
+  { name: "Seeker", xp: 500 },
+  { name: "Archivist", xp: 1500 },
+  { name: "Strategist", xp: 3500 },
+  { name: "Mindwalker", xp: 7000 },
+  { name: "Mastermind", xp: 15000 },
 ];
-
-const LEADERBOARD = {
-  Global: [
-    { name: "Alex K.", xp: 2340 },
-    { name: "Sarah M.", xp: 2120 },
-    { name: "James T.", xp: 1750 },
-  ],
-  Friends: [
-    { name: "Jamie R.", xp: 1600 },
-    { name: "Priya S.", xp: 1350 },
-  ],
-} as const;
-
-type LeaderboardRow = {
-  name: string;
-  xp: number;
-  you?: boolean;
-};
-
-const GOAL_METRIC_PRESETS: Record<string, string[]> = {
-  Memory: ["numbers", "digits", "cards", "words", "names", "images"],
-  Maths: ["equations", "additions", "subtractions", "multiplications", "divisions", "percentages"],
-  Words: ["words", "letters", "anagrams", "lists"],
-  Speed: ["reactions", "seconds", "rounds"],
-  Focus: ["patterns", "sequences", "rounds"],
-};
-
-const GRAPH_WIDTH = 1120;
-const GRAPH_HEIGHT = 340;
-const GRAPH_PADDING = { top: 42, right: 92, bottom: 52, left: 44 };
-const GRAPH_SCALES = [
-  { id: "day", label: "Day" },
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
-] as const;
-
-type GraphScale = typeof GRAPH_SCALES[number]["id"];
-const GRAPH_SCALE_ORDER: GraphScale[] = ["day", "week", "month", "year"];
 
 function todayLabel() {
   return new Intl.DateTimeFormat("en-GB", {
@@ -66,27 +54,22 @@ function todayLabel() {
   }).format(new Date());
 }
 
-function daysUntil(date: string) {
-  const target = new Date(`${date}T00:00:00`);
-  const now = new Date();
-  return Math.max(0, Math.ceil((target.getTime() - now.getTime()) / 86400000));
-}
-
 function ProgressBar({ value, color = "#E85D2A" }: { value: number; color?: string }) {
+  const fillColor = Platform.OS === "web" ? color : color === "#121212" ? "#172A38" : "#0F7EA8";
   return (
     <View style={s.progressTrack}>
-      <View style={[s.progressFill, { width: `${Math.min(100, Math.max(0, value))}%` as any, backgroundColor: color }]} />
+      <View style={[s.progressFill, { width: `${Math.min(100, Math.max(0, value))}%` as any, backgroundColor: fillColor }]} />
     </View>
   );
 }
 
 function SectionLabel({ children }: { children: string }) {
-  return <Text style={s.sectionLabel}>{children}</Text>;
+  return <Text style={[s.sectionLabel, Platform.OS !== "web" && s.sectionLabelApp]}>{children}</Text>;
 }
 
-function StatCard({ label, value, icon }: { label: string; value: string; icon: string }) {
+function StatCard({ label, value, icon, style }: { label: string; value: string; icon: string; style?: any }) {
   return (
-    <View style={s.statMini}>
+    <View style={[s.statMini, style]}>
       <Text style={s.statEmoji}>{icon}</Text>
       <Text style={s.statMiniValue}>{value}</Text>
       <Text style={s.statMiniLabel}>{label}</Text>
@@ -94,159 +77,231 @@ function StatCard({ label, value, icon }: { label: string; value: string; icon: 
   );
 }
 
-function localDayKey(date: string | Date) {
-  const value = typeof date === "string" ? new Date(date) : date;
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function LeaderboardRow({ row, isMobile, showLevel = false }: { row: LeaderboardEntry; isMobile: boolean; showLevel?: boolean }) {
+  const level = questRankStatus(row.xp).current.name;
+  return (
+    <View style={[s.leaderRow, isMobile && s.leaderRowMobile, s.darkSubPanel, row.you && s.leaderRowYou]}>
+      <View style={[s.rankBadge, row.rank === 1 && s.rankGold, row.rank === 2 && s.rankSilver, row.rank === 3 && s.rankBronze]}>
+        <Text style={s.rankText}>{row.rank}</Text>
+      </View>
+      <View style={s.leaderIdentity}>
+        <Text style={[s.leaderName, isMobile && s.leaderNameMobile, row.you && s.leaderNameYou]}>{row.displayName}{row.you ? " · you" : ""}</Text>
+        {showLevel && <Text style={s.leaderLevel}>{level} level</Text>}
+      </View>
+      <View style={[s.leaderXp, isMobile && s.leaderXpMobile]}>
+        <Text style={s.leaderEmoji}>✨</Text>
+        <Text style={[s.leaderXpText, row.you && s.leaderNameYou]}>{row.xp.toLocaleString("en-GB")}</Text>
+        <Text style={s.leaderXpLabel}>XP</Text>
+      </View>
+    </View>
+  );
 }
 
-function scoreForGoal(goal: UserGoal, stats: ReturnType<typeof calculateGameStats>) {
-  if (goal.targetMetric === "digits") return stats.bestDigits;
-  if (goal.targetMetric === "numbers") return stats.bestNumbers;
+type GameStats = ReturnType<typeof calculateGameStats>;
+
+const DAILY_TRAINING_CATEGORY_TARGETS = [
+  { category: "Memory", label: "Memory" },
+  { category: "Maths", label: "Maths" },
+  { category: "Words", label: "Linguistics" },
+] as const;
+
+function completedDailyTrainingCategories(todayResults: StoredGameResult[]) {
+  return new Set(
+    todayResults
+      .map((result) => GAMES.find((game) => game.id === result.gameId)?.category)
+      .filter((category) => DAILY_TRAINING_CATEGORY_TARGETS.some((target) => target.category === category))
+  );
+}
+
+function trainingCategoryLabel(category: string) {
+  return category === "Words" ? "Linguistics" : category;
+}
+
+function questCurrentValue(quest: UserQuest, stats: GameStats, todayResults: StoredGameResult[], vaultCompletedCount: number) {
+  if (quest.metric === "game_score") {
+    const latestAttempt = todayResults
+      .filter((result) => result.gameId === quest.gameId)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    return latestAttempt ? pointsForResult(latestAttempt) : 0;
+  }
+  if (quest.metric === "daily_training_trio") return completedDailyTrainingCategories(todayResults).size;
+  if (quest.metric === "daily_sessions") return todayResults.length;
+  if (quest.metric === "accuracy") return todayResults.reduce((best, result) => Math.max(best, result.accuracy), 0);
+  if (quest.metric === "best_digits") return stats.bestDigits;
+  if (quest.metric === "best_numbers") return stats.bestNumbers;
+  if (quest.metric === "vault_lessons") return vaultCompletedCount;
+  if (quest.metric === "streak") return stats.streakDays;
   return 0;
 }
 
-function normaliseMetricLabel(value: string) {
-  return value
-    .replace(/game$/i, "")
-    .replace(/calculation$/i, "equations")
-    .replace(/names & faces/i, "names")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+function seededQuestBump(seed: string) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  return 2 + (hash % 5);
 }
 
-function metricOptionsForTag(tag: string) {
-  const preset = GOAL_METRIC_PRESETS[tag] ?? [];
-  const derived = GAMES
-    .filter((game) => game.category === tag)
-    .map((game) => normaliseMetricLabel(game.title));
-  return Array.from(new Set([...preset, ...derived])).filter(Boolean);
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
 }
 
-function pointsForResult(result: StoredGameResult) {
-  return result.digitsCorrect + result.numbersCorrect * 2;
+function weeklyQuestScores(quest: UserQuest, gameResults: StoredGameResult[]) {
+  const questGame = GAMES.find((game) => game.id === quest.gameId);
+  const category = questGame?.category ?? (quest.tag === "Linguistics" ? "Words" : quest.tag);
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - 7);
+  const weekStartTime = weekStart.getTime();
+
+  const selectedGameResults = gameResults.filter((result) => result.gameId === quest.gameId && Date.parse(result.createdAt) >= weekStartTime);
+  const fallbackCategoryResults = gameResults.filter((result) => {
+    const game = GAMES.find((item) => item.id === result.gameId);
+    return game?.category === category && Date.parse(result.createdAt) >= weekStartTime;
+  });
+
+  return (selectedGameResults.length ? selectedGameResults : fallbackCategoryResults)
+    .map((result) => ({ score: pointsForResult(result), createdAt: result.createdAt }))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
-function pointsPerSecondForResult(result: StoredGameResult) {
-  return pointsForResult(result) / Math.max(1, result.timeTakenSeconds);
-}
-
-function sameLocalDay(a: Date, b: Date) {
-  return localDayKey(a) === localDayKey(b);
-}
-
-function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthLabel(date: Date) {
-  return new Intl.DateTimeFormat("en-GB", { month: "short" }).format(date);
-}
-
-function attemptLabel(date: Date) {
-  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(date);
-}
-
-function aggregateResults(id: string, label: string, results: StoredGameResult[]) {
-  const numbersCorrect = results.reduce((sum, result) => sum + result.numbersCorrect, 0);
-  const numbersShown = results.reduce((sum, result) => sum + result.numbersShown, 0);
-  const digitsCorrect = results.reduce((sum, result) => sum + result.digitsCorrect, 0);
-  const digitsShown = results.reduce((sum, result) => sum + result.digitsShown, 0);
-  const timeTakenSeconds = results.reduce((sum, result) => sum + result.timeTakenSeconds, 0);
-  const points = results.reduce((sum, result) => sum + pointsForResult(result), 0);
-  const accuracy = results.length ? Math.round(results.reduce((sum, result) => sum + result.accuracy, 0) / results.length) : 0;
+function adaptiveGameQuestTarget(quest: UserQuest, gameResults: StoredGameResult[]) {
+  const weeklyScores = weeklyQuestScores(quest, gameResults);
+  const scores = weeklyScores.map((item) => item.score);
+  const baseline = median(scores) || Math.max(8, quest.target);
+  const latestScore = weeklyScores[0]?.score ?? baseline;
+  const deviations = scores.map((score) => Math.abs(score - baseline));
+  const medianDeviation = median(deviations);
+  const outlierGap = Math.max(4, medianDeviation * 2);
+  const latestIsHighOutlier = latestScore > baseline && latestScore - baseline >= outlierGap;
+  const bump = seededQuestBump(`${quest.questDate}-${quest.gameId ?? quest.tag}`);
+  const base = latestIsHighOutlier ? latestScore : baseline;
 
   return {
-    id,
-    label,
-    attempts: results.length,
-    points,
-    pointsPerSecond: points / Math.max(1, timeTakenSeconds),
-    numbersCorrect,
-    numbersShown,
-    digitsCorrect,
-    digitsShown,
-    timeTakenSeconds,
-    accuracy,
-    hasData: results.length > 0,
+    bump,
+    medianScore: baseline,
+    target: Math.max(2, Math.round(base + bump)),
   };
 }
 
-function buildPerformanceTimeline(results: StoredGameResult[], scale: GraphScale) {
-  const now = new Date();
+function calibratedQuestTarget(quest: UserQuest, stats: GameStats, vaultCompletedCount: number, gameResults: StoredGameResult[]) {
+  if (quest.calibratedAt) return quest.target;
 
-  if (scale === "day") {
-    return results
-      .filter((result) => sameLocalDay(new Date(result.createdAt), now))
-      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
-      .map((result, index) => ({
-        id: result.id,
-        label: attemptLabel(new Date(result.createdAt)),
-        attempts: 1,
-        points: pointsForResult(result),
-        pointsPerSecond: pointsPerSecondForResult(result),
-        numbersCorrect: result.numbersCorrect,
-        numbersShown: result.numbersShown,
-        digitsCorrect: result.digitsCorrect,
-        digitsShown: result.digitsShown,
-        timeTakenSeconds: result.timeTakenSeconds,
-        accuracy: result.accuracy,
-        hasData: true,
-        index,
-      }));
+  if (quest.metric === "game_score") {
+    return adaptiveGameQuestTarget(quest, gameResults).target;
   }
 
-  if (scale === "year") {
-    return Array.from({ length: 12 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
-      const key = monthKey(date);
-      const bucketResults = results.filter((result) => monthKey(new Date(result.createdAt)) === key);
-      const label = index === 11 ? "This month" : monthLabel(date);
-      return { ...aggregateResults(key, label, bucketResults), index };
-    });
+  if (quest.metric === "daily_training_trio") {
+    return 3;
   }
 
-  const length = scale === "week" ? 7 : 30;
-  return Array.from({ length }, (_, index) => {
-    const date = startOfLocalDay(now);
-    date.setDate(date.getDate() - (length - 1 - index));
-    const key = localDayKey(date);
-    const bucketResults = results.filter((result) => localDayKey(result.createdAt) === key);
-    const label = index === length - 1 ? "Today" : scale === "week"
-      ? new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(date)
-      : new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short" }).format(date);
-    return { ...aggregateResults(key, label, bucketResults), index };
-  });
+  if (quest.metric === "daily_sessions") {
+    return Math.max(2, Math.min(4, stats.resultsCount >= 12 ? 3 : quest.target));
+  }
+
+  if (quest.metric === "accuracy") {
+    const pressureTarget = stats.averageAccuracy ? stats.averageAccuracy + 4 : quest.target;
+    return Math.max(quest.target, Math.min(96, pressureTarget));
+  }
+
+  if (quest.metric === "best_numbers") {
+    return Math.max(quest.target, stats.bestNumbers ? stats.bestNumbers + 2 : quest.target);
+  }
+
+  if (quest.metric === "best_digits") {
+    return Math.max(quest.target, stats.bestDigits ? stats.bestDigits + 4 : quest.target);
+  }
+
+  if (quest.metric === "vault_lessons") {
+    return Math.max(quest.target, vaultCompletedCount + 1);
+  }
+
+  if (quest.metric === "streak") {
+    return Math.max(quest.target, stats.streakDays + 1);
+  }
+
+  return quest.target;
+}
+
+function hydrateQuestProgress(quest: UserQuest, stats: GameStats, todayResults: StoredGameResult[], vaultCompletedCount: number, gameResults: StoredGameResult[]): UserQuest {
+  const target = calibratedQuestTarget(quest, stats, vaultCompletedCount, gameResults);
+  const current = questCurrentValue({ ...quest, target }, stats, todayResults, vaultCompletedCount);
+  const complete = current >= target;
+  const calibration = quest.metric === "game_score" ? adaptiveGameQuestTarget(quest, gameResults) : null;
+  return {
+    ...quest,
+    target,
+    current,
+    status: complete ? "complete" : "active",
+    systemMessage: calibration
+      ? `7-day median ${calibration.medianScore} pts; target adds ${calibration.bump}. Latest attempt ${current || "not logged"}.`
+      : quest.systemMessage,
+    calibratedAt: quest.calibratedAt ?? new Date().toISOString(),
+    completedAt: complete ? quest.completedAt ?? new Date().toISOString() : undefined,
+  };
+}
+
+function questProgressPercent(quest: UserQuest) {
+  return Math.min(100, Math.round((quest.current / Math.max(1, quest.target)) * 100));
+}
+
+function questProgressLabel(quest: UserQuest) {
+  if (quest.metric === "game_score") return `${quest.current} / ${quest.target} pts`;
+  if (quest.metric === "daily_training_trio") return `${quest.current} / ${quest.target} categories`;
+  if (quest.metric === "accuracy") return `${quest.current}% / ${quest.target}%`;
+  if (quest.metric === "daily_sessions") return `${quest.current} / ${quest.target} sessions`;
+  if (quest.metric === "vault_lessons") return `${quest.current} / ${quest.target} lessons`;
+  if (quest.metric === "streak") return `${quest.current} / ${quest.target} days`;
+  return `${quest.current} / ${quest.target}`;
+}
+
+function questStateKey(quests: UserQuest[]) {
+  return JSON.stringify(quests.map((quest) => ({
+    id: quest.id,
+    target: quest.target,
+    current: quest.current,
+    status: quest.status,
+    calibratedAt: quest.calibratedAt,
+    completedAt: quest.completedAt,
+    gameId: quest.gameId,
+    systemMessage: quest.systemMessage,
+  })));
+}
+
+function questRankStatus(totalXp: number) {
+  const currentIndex = QUEST_RANKS.reduce((best, rank, index) => totalXp >= rank.xp ? index : best, 0);
+  const current = QUEST_RANKS[currentIndex];
+  const next = QUEST_RANKS[currentIndex + 1] ?? current;
+  const span = Math.max(1, next.xp - current.xp);
+  const progress = next === current ? 100 : Math.round(((totalXp - current.xp) / span) * 100);
+
+  return {
+    current,
+    next,
+    progress: Math.min(100, Math.max(0, progress)),
+  };
 }
 
 export default function Dashboard() {
-  const [goals, setGoals] = useState<UserGoal[]>(() => getUserGoals());
-  const [goalModalOpen, setGoalModalOpen] = useState(false);
-  const [editingGoalIndex, setEditingGoalIndex] = useState<number | null>(null);
-  const firstGoal = goals[0];
-  const [draftGoalText, setDraftGoalText] = useState(firstGoal.text);
-  const [draftGoalTag, setDraftGoalTag] = useState(firstGoal.tag);
-  const [draftTargetCount, setDraftTargetCount] = useState(String(firstGoal.targetCount));
-  const [draftTargetMetric, setDraftTargetMetric] = useState(firstGoal.targetMetric);
-  const [draftTargetSeconds, setDraftTargetSeconds] = useState(String(firstGoal.targetSeconds));
-  const [draftDeadline, setDraftDeadline] = useState(firstGoal.deadline);
-  const [metricMenuOpen, setMetricMenuOpen] = useState(false);
-  const [leaderboardFilter, setLeaderboardFilter] = useState<keyof typeof LEADERBOARD>("Global");
-  const [gameResults, setGameResults] = useState<StoredGameResult[]>([]);
+  const [quests, setQuests] = useState<UserQuest[]>(() => getUserQuests());
+  const [leaderboardFilter, setLeaderboardFilter] = useState<LeaderboardFilter>("Global");
+  const [gameResults, setGameResults] = useState<StoredGameResult[]>(() => readLocalGameResultsSnapshot());
+  const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardEntry[]>([]);
+  const [vaultCompletedCount, setVaultCompletedCount] = useState(() => getCachedMemoryVaultProgress());
+  const [latestVaultTreeId, setLatestVaultTreeId] = useState(() => getCachedLatestVaultTreeId());
   const [selectedGraphGameId, setSelectedGraphGameId] = useState<string | null>(null);
   const [focusedGraphResultId, setFocusedGraphResultId] = useState<string | null>(null);
   const [graphScale, setGraphScale] = useState<GraphScale>("week");
   const [graphSelected, setGraphSelected] = useState(false);
   const graphWheelAtRef = useRef(0);
-  const [favouriteIds, setFavouriteIds] = useState<string[]>([]);
+  const [favouriteIds, setFavouriteIds] = useState<string[]>(() => getFavouriteGameIds());
   const [dailyPlan, setDailyPlan] = useState<GameConfig[]>(GAMES.slice(0, 3));
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [vaultReady, setVaultReady] = useState(false);
+  const [resultsReady, setResultsReady] = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
@@ -255,7 +310,7 @@ export default function Dashboard() {
       const raw = localStorage.getItem(PERSIST_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
-      if (saved.leaderboardFilter) setLeaderboardFilter(saved.leaderboardFilter);
+      if (LEADERBOARD_FILTERS.includes(saved.leaderboardFilter)) setLeaderboardFilter(saved.leaderboardFilter);
     } catch {
       // Ignore malformed dashboard state.
     }
@@ -267,31 +322,99 @@ export default function Dashboard() {
   }, [leaderboardFilter]);
 
   useEffect(() => {
-    setGoals(getUserGoals());
-    setFavouriteIds(getFavouriteGameIds());
-    setDailyPlan(getDailyPlanGames());
+    let alive = true;
+
+    function refreshPreferences() {
+      setPreferencesReady(false);
+      setDailyPlan(getDailyPlanGames());
+      loadUserPreferences()
+        .then((preferences) => {
+          if (!alive) return;
+          setQuests(preferences.quests);
+          setFavouriteIds(preferences.favouriteGameIds);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (alive) setPreferencesReady(true);
+        });
+    }
+
+    refreshPreferences();
+
+    if (!canUseWindowEvents()) return () => {
+      alive = false;
+    };
+
+    window.addEventListener("memoro-user-changed", refreshPreferences);
+    return () => {
+      alive = false;
+      window.removeEventListener("memoro-user-changed", refreshPreferences);
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    function refreshVaultProgress() {
+      Promise.all([loadMemoryVaultProgress(), loadLatestVaultTreeId()])
+        .then(([progress, treeId]) => {
+          if (!alive) return;
+          setVaultCompletedCount(progress);
+          setLatestVaultTreeId(treeId);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (alive) setVaultReady(true);
+        });
+    }
+
+    refreshVaultProgress();
+
+    if (!canUseWindowEvents()) return () => {
+      alive = false;
+    };
+
+    window.addEventListener("focus", refreshVaultProgress);
+    window.addEventListener("memoro-user-changed", refreshVaultProgress);
+    window.addEventListener(memoryVaultProgressEventName(), refreshVaultProgress);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", refreshVaultProgress);
+      window.removeEventListener("memoro-user-changed", refreshVaultProgress);
+      window.removeEventListener(memoryVaultProgressEventName(), refreshVaultProgress);
+    };
   }, []);
 
   useEffect(() => {
     let alive = true;
 
     async function refreshResults() {
-      const results = await loadGameResults();
-      if (alive) setGameResults(results);
+      try {
+        const results = await loadGameResults();
+        if (alive) setGameResults(results);
+        const nextLeaderboard = await loadLeaderboard(100);
+        if (alive) setLeaderboardRows(nextLeaderboard);
+      } catch {
+        // Keep the cached dashboard visible if remote data is unavailable.
+      } finally {
+        if (alive) setResultsReady(true);
+      }
     }
 
     refreshResults();
 
-    if (typeof window === "undefined") return () => {
+    if (!canUseWindowEvents()) return () => {
       alive = false;
     };
 
     window.addEventListener("focus", refreshResults);
     window.addEventListener("memoro-results-updated", refreshResults);
+    window.addEventListener("memoro-user-changed", refreshResults);
     return () => {
       alive = false;
       window.removeEventListener("focus", refreshResults);
       window.removeEventListener("memoro-results-updated", refreshResults);
+      window.removeEventListener("memoro-user-changed", refreshResults);
     };
   }, []);
 
@@ -299,49 +422,30 @@ export default function Dashboard() {
   const latestResult = gameStats.latest;
   const continueProgress = latestResult ? Math.min(100, Math.max(0, latestResult.accuracy)) : 0;
   const today = localDayKey(new Date());
-  const playedToday = new Set(gameResults.filter((result) => localDayKey(result.createdAt) === today).map((result) => result.gameId));
+  const todayResults = gameResults.filter((result) => localDayKey(result.createdAt) === today);
+  const playedToday = new Set(todayResults.map((result) => result.gameId));
   const favouriteGames = favouriteIds
     .map((id) => GAMES.find((game) => game.id === id))
     .filter(Boolean) as GameConfig[];
-  const visibleFavouriteGames = favouriteGames.length ? favouriteGames : GAMES.slice(0, 3);
-  const draftMetricOptions = metricOptionsForTag(draftGoalTag);
+  const activeQuests = quests.map((quest) => hydrateQuestProgress(quest, gameStats, todayResults, vaultCompletedCount, gameResults));
+  const completedQuestCount = activeQuests.filter((quest) => quest.status === "complete").length;
+  const activeQuestState = questStateKey(activeQuests);
+  const storedQuestState = questStateKey(quests);
+  const rankStatus = questRankStatus(gameStats.totalXp);
   const activeGraphGameId = selectedGraphGameId ?? latestResult?.gameId ?? "numbers-game";
   const graphGame = GAMES.find((game) => game.id === activeGraphGameId) ?? GAMES[0];
   const graphResults = gameResults.filter((result) => result.gameId === activeGraphGameId);
   const graphTimeline = buildPerformanceTimeline(graphResults, graphScale);
-  const graphDataPoints = graphTimeline.filter((point) => point.hasData);
-  const graphPeak = Math.max(1, ...graphDataPoints.map((item) => item.pointsPerSecond));
+  const { graphDataPoints, graphLinePoints, graphLineSegments, plotWidth } = buildGraphGeometry(graphTimeline);
   const focusedGraphResult = graphDataPoints.find((item) => item.id === focusedGraphResultId) ?? graphDataPoints[graphDataPoints.length - 1];
-  const plotWidth = GRAPH_WIDTH - GRAPH_PADDING.left - GRAPH_PADDING.right;
-  const plotHeight = GRAPH_HEIGHT - GRAPH_PADDING.top - GRAPH_PADDING.bottom;
-  const graphLinePoints = graphDataPoints.map((item) => {
-    const denominator = Math.max(1, graphTimeline.length - 1);
-    const x = GRAPH_PADDING.left + (item.index / denominator) * plotWidth;
-    const y = GRAPH_PADDING.top + (1 - item.pointsPerSecond / graphPeak) * plotHeight;
-    return { ...item, x, y };
-  });
-  const graphLineSegments = graphLinePoints.slice(1).map((point, index) => {
-    const previous = graphLinePoints[index];
-    const dx = point.x - previous.x;
-    const dy = point.y - previous.y;
-    return {
-      key: `${previous.id}-${point.id}`,
-      left: previous.x,
-      top: previous.y,
-      width: Math.sqrt(dx * dx + dy * dy),
-      angle: Math.atan2(dy, dx) * (180 / Math.PI),
-    };
-  });
-  const graphAxisLabels = graphTimeline
-    .filter((point) => graphScale === "week" || point.index === 0 || point.index === graphTimeline.length - 1 || point.index === Math.floor((graphTimeline.length - 1) / 2))
-    .map((point) => {
-      const denominator = Math.max(1, graphTimeline.length - 1);
-      return {
-        id: point.id,
-        label: point.label,
-        left: GRAPH_PADDING.left + (point.index / denominator) * plotWidth,
-      };
-    });
+  const graphAxisLabels = buildGraphAxisLabels(graphTimeline, graphScale);
+  const dashboardReady = preferencesReady && vaultReady && resultsReady;
+
+  useEffect(() => {
+    if (!dashboardReady || activeQuestState === storedQuestState) return;
+    setQuests(activeQuests);
+    saveUserQuests(activeQuests);
+  }, [activeQuestState, activeQuests, dashboardReady, storedQuestState]);
 
   function moveGraphScale(direction: 1 | -1) {
     setGraphScale((current) => {
@@ -375,225 +479,123 @@ export default function Dashboard() {
     moveGraphScale(primaryDelta > 0 ? 1 : -1);
   }
 
-  function selectGoalTag(tag: string) {
-    const options = metricOptionsForTag(tag);
-    setDraftGoalTag(tag);
-    if (!options.includes(draftTargetMetric)) setDraftTargetMetric(options[0] ?? "target");
-    setMetricMenuOpen(false);
-  }
-
-  function openGoalSettings(index: number | null = 0) {
-    const goal = index === null ? {
-      text: "Remember digits",
-      tag: "Memory",
-      targetCount: 20,
-      targetMetric: "digits",
-      targetSeconds: 60,
-      deadline: "2026-05-31",
-    } : goals[index];
-    setEditingGoalIndex(index);
-    setDraftGoalText(goal.text);
-    setDraftGoalTag(goal.tag);
-    setDraftTargetCount(String(goal.targetCount));
-    setDraftTargetMetric(goal.targetMetric);
-    setDraftTargetSeconds(String(goal.targetSeconds));
-    setDraftDeadline(goal.deadline);
-    setMetricMenuOpen(false);
-    setGoalModalOpen(true);
-  }
-
-  function saveGoalSettings() {
-    const nextCount = Number.parseInt(draftTargetCount, 10);
-    const nextSeconds = Number.parseInt(draftTargetSeconds, 10);
-    const nextGoal = {
-      text: draftGoalText.trim() || "Remember digits",
-      tag: draftGoalTag,
-      targetCount: Number.isFinite(nextCount) ? Math.max(1, Math.min(999, nextCount)) : 20,
-      targetMetric: draftTargetMetric.trim() || "digits",
-      targetSeconds: Number.isFinite(nextSeconds) ? Math.max(5, Math.min(3600, nextSeconds)) : 60,
-      deadline: draftDeadline || "2026-05-31",
-    };
-    const nextGoals = editingGoalIndex === null
-      ? [...goals, nextGoal].slice(0, 3)
-      : goals.map((goal, index) => index === editingGoalIndex ? nextGoal : goal);
-    setGoals(nextGoals);
-    saveUserGoals(nextGoals);
-    setGoalModalOpen(false);
-  }
-
-  function removeGoal() {
-    if (editingGoalIndex === null || goals.length <= 1) return;
-    const nextGoals = goals.filter((_, index) => index !== editingGoalIndex);
-    setGoals(nextGoals);
-    saveUserGoals(nextGoals);
-    setGoalModalOpen(false);
-  }
-
   return (
     <DashboardShell
       active="dashboard"
-      title={({ profileName }) => `Good training, ${profileName}`}
-      subtitle={`${todayLabel()} · You are on a ${gameStats.streakDays}-day streak. Keep it up.`}
-      actionLabel="Start Training"
-      onActionPress={() => router.push("/games" as any)}
+      lightHeader
+      title="Dashboard"
+      subtitle=""
     >
       {({ isCompact, isMobile, profileName }) => {
-        const leaderboardRows: (LeaderboardRow & { rank: number })[] = [
-          ...LEADERBOARD[leaderboardFilter],
-          { name: profileName, xp: gameStats.totalXp, you: true },
-        ].sort((a, b) => b.xp - a.xp).map((row, index) => ({ ...row, rank: index + 1 }));
+        const isNativeApp = Platform.OS !== "web";
+        const visibleLeaderboardRows = leaderboardRows.length
+          ? leaderboardRows
+          : [{
+              userId: "local",
+              displayName: profileName,
+              avatarColor: "#E85D2A",
+              avatarImageUri: "",
+              xp: gameStats.totalXp,
+              resultsCount: gameStats.resultsCount,
+              rank: 1,
+              you: true,
+            }];
+        const topLeaderboardRows = visibleLeaderboardRows.slice(0, 3);
+        const ownLeaderboardRow = visibleLeaderboardRows.find((row) => row.you);
+        const leaderboardModalRows = ownLeaderboardRow
+          ? [ownLeaderboardRow, ...visibleLeaderboardRows.filter((row) => row.userId !== ownLeaderboardRow.userId).slice(0, 24)]
+          : visibleLeaderboardRows.slice(0, 25);
+        const latestVaultCategory = getCategoryConfig(latestVaultTreeId);
+        const latestVaultIsMemory = latestVaultCategory.id === "Memory";
+        const cardStyle = [s.card, isNativeApp && s.cardApp, isMobile && s.cardMobile];
+        const darkCardStyle = [s.card, s.darkCard, isNativeApp && s.darkCardApp, isMobile && s.cardMobile];
 
         return (
-        <>
-          <View style={[s.grid, isCompact && s.gridCompact, isMobile && s.gridMobile]}>
-            <View style={s.mainColumn}>
-              <View style={s.card}>
-                <View style={s.cardHeader}>
-                  <View>
-                    <SectionLabel>Your Goals</SectionLabel>
-                    <Text style={s.cardTitle}>{goals.length}/3 active goals</Text>
-                  </View>
-                  {goals.length < 3 && (
-                    <TouchableOpacity style={s.gearBtn} onPress={() => openGoalSettings(null)}>
-                      <Feather name="plus" size={15} color="#9E9E9E" />
-                    </TouchableOpacity>
-                  )}
+        <View style={s.contentFadeIn}>
+          {/* Hero card — greeting, progress pills, Start Training, and rank */}
+          <View style={[s.heroCard, isMobile && s.heroCardMobile]}>
+            <View style={s.heroLeft}>
+              <Text style={[s.heroGreeting, isMobile && s.heroGreetingMobile]}>Good training, {profileName}</Text>
+              <Text style={s.heroSubtitle}>{todayLabel()} · You are on a {gameStats.streakDays}-day streak. Keep it up.</Text>
+              <View style={s.heroPillRow}>
+                <View style={s.heroPill}>
+                  <Text style={s.heroPillText}>{completedQuestCount} / {activeQuests.length} quests cleared</Text>
                 </View>
-                <View style={s.listStack}>
-                  {goals.map((goal, index) => {
-                    const currentScore = scoreForGoal(goal, gameStats);
-                    const goalPercent = Math.min(100, Math.round((currentScore / goal.targetCount) * 100));
-                    const step = Math.ceil(goal.targetCount / 4);
-                    const milestones = [step, step * 2, step * 3, goal.targetCount];
-                    const goalTagConfig = getCategoryConfig(goal.tag);
-
-                    return (
-                      <View key={`${goal.text}-${index}`} style={s.goalItem}>
-                        <View style={s.goalHeader}>
-                          <View style={[s.goalEmoji, { backgroundColor: `${goalTagConfig.color}18` }]}>
-                            <Text style={s.goalEmojiText}>{goalTagConfig.emoji}</Text>
-                          </View>
-                          <View style={s.goalTextBlock}>
-                            <Text style={s.goalTitle}>
-                              {goal.text} <Text style={s.goalTitleEm}>{goal.targetCount} {goal.targetMetric}</Text>
-                            </Text>
-                            <View style={s.goalMeta}>
-                              <Text style={s.goalMetaText}>Currently at <Text style={s.boldText}>{currentScore} {goal.targetMetric}</Text></Text>
-                              <View style={[s.onTrackPill, { backgroundColor: `${goalTagConfig.color}14` }]}>
-                                <Text style={[s.onTrackText, { color: goalTagConfig.color }]}>{goal.tag}</Text>
-                              </View>
-                              <Text style={s.goalMetaText}>in {goal.targetSeconds}s</Text>
-                              <Text style={s.goalMetaText}>{daysUntil(goal.deadline)} days left</Text>
-                            </View>
-                          </View>
-                          <View style={s.goalRight}>
-                            <View>
-                              <Text style={s.goalPercent}>{goalPercent}%</Text>
-                              <Text style={s.goalPercentLabel}>complete</Text>
-                            </View>
-                            <TouchableOpacity style={s.gearBtn} onPress={() => openGoalSettings(index)}>
-                              <Feather name="settings" size={15} color="#9E9E9E" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        <View style={s.goalProgressWrap}>
-                          <ProgressBar value={goalPercent} />
-                          <View style={s.milestoneRow}>
-                            {milestones.map((m) => (
-                              <Text key={m} style={[s.milestoneText, m <= currentScore && s.milestoneTextActive]}>{m}</Text>
-                            ))}
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  })}
-                  <View style={s.goalMeta}>
-                    <Text style={s.goalMetaText}>Play any game once today to count toward your daily streak.</Text>
-                  </View>
+                <View style={[s.heroPill, s.heroPillAccent]}>
+                  <View style={s.heroPillAccentDot} />
+                  <Text style={s.heroPillAccentText}>Adaptive</Text>
                 </View>
               </View>
-
-              <TouchableOpacity style={s.quickStart} onPress={() => router.push("/game/numbers-game" as any)}>
-                <View>
-                  <Text style={s.quickLabel}>Quick Start</Text>
-                  <Text style={s.quickTitle}>Start number training</Text>
-                  <Text style={s.quickSub}>Continue building your recall streak</Text>
-                </View>
-                <View style={s.quickIcon}>
-                  <Feather name="play" size={22} color="#FFFFFF" />
-                </View>
+              <TouchableOpacity style={s.heroStartBtn} onPress={() => router.push("/games" as any)}>
+                <Feather name="play" size={15} color="#FFFFFF" />
+                <Text style={s.heroStartText}>Start Training</Text>
               </TouchableOpacity>
-
-              <View style={s.card}>
-                <View style={s.cardHeader}>
-                  <View>
-                    <SectionLabel>{"Today's Plan"}</SectionLabel>
-                    <Text style={s.cardTitle}>3 games selected for today</Text>
-                  </View>
-                  <View style={s.donePill}>
-                    <Text style={s.donePillText}>{dailyPlan.filter((game) => playedToday.has(game.id)).length}/3 done</Text>
-                  </View>
-                </View>
-                <View style={s.listStack}>
-                  {dailyPlan.map((game) => {
-                    const done = playedToday.has(game.id);
-                    const category = getCategoryConfig(game.category);
-                    return (
-                      <TouchableOpacity
-                        key={game.id}
-                        style={[s.taskRow, done && { borderColor: `${game.color}44`, backgroundColor: `${game.color}10` }]}
-                        onPress={() => router.push(`/game/${game.id}` as any)}
-                      >
-                        <View style={[s.taskIcon, { backgroundColor: `${game.color}18` }]}>
-                          <Text style={s.taskEmoji}>{category.emoji}</Text>
-                        </View>
-                        <View style={s.taskContent}>
-                          <Text style={[s.taskTitle, done && s.taskTitleDone]}>{game.title}</Text>
-                          <Text style={s.taskDur}>{game.category} · {game.duration}</Text>
-                        </View>
-                        <View style={[s.checkCircle, done && { backgroundColor: game.color, borderColor: game.color }]}>
-                          {done && <Feather name="check" size={13} color="#FFFFFF" />}
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+            </View>
+            <View style={[s.rankCard, isMobile && s.rankCardMobile]}>
+              <View style={s.rankTopRow}>
+                <Text style={s.rankLabel}>Rank</Text>
+                <Text style={s.rankXp}>{gameStats.totalXp.toLocaleString("en-GB")} <Text style={s.rankXpUnit}>/ {rankStatus.next.xp.toLocaleString("en-GB")}</Text></Text>
               </View>
-
-              <View style={s.card}>
-                <SectionLabel>Continue</SectionLabel>
-                <View style={s.listStack}>
-                  {[
-                    {
-                      label: latestResult?.gameTitle ?? "Numbers Game",
-                      progress: continueProgress,
-                      icon: "🧠",
-                      color: "#5B5BD6",
-                      sub: latestResult ? `${latestResult.numbersCorrect}/${latestResult.numbersShown} remembered · ${latestResult.accuracy}% accuracy` : "No saved attempts yet",
-                    },
-                  ].map((item) => (
-                    <TouchableOpacity key={item.label} style={s.continueRow} onPress={() => router.push("/game/numbers-game" as any)}>
-                      <View style={s.continueContent}>
-                        <Text style={s.continueTitle}>{item.label}</Text>
-                        <Text style={s.continuePct}>{item.sub}</Text>
-                        <ProgressBar value={item.progress} color={item.color} />
-                      </View>
-                      <Text style={s.continuePct}>{item.progress}%</Text>
-                      <View style={[s.continuePlay, { backgroundColor: `${item.color}18` }]}>
-                        <Feather name="play" size={12} color={item.color} />
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+              <Text style={s.rankName}>{rankStatus.current.name}</Text>
+              <ProgressBar value={rankStatus.progress} />
+              <View style={s.rankToNextRow}>
+                <Text style={s.rankToNextLabel}>XP to next</Text>
+                <Text style={s.rankToNextValue}>{Math.max(0, rankStatus.next.xp - gameStats.totalXp).toLocaleString("en-GB")} XP</Text>
               </View>
+            </View>
+          </View>
 
-              <View style={s.card}>
+          {/* System Quests — 2×2 grid */}
+          <View style={[s.questsSection, isMobile && s.questsSectionMobile]}>
+            <View style={s.questsSectionHead}>
+              <SectionLabel>System Quests</SectionLabel>
+              <Text style={s.questsClearedText}>{completedQuestCount}/{activeQuests.length} cleared</Text>
+            </View>
+            <View style={s.questGrid}>
+              {activeQuests.map((quest) => {
+                const progress = questProgressPercent(quest);
+                const complete = quest.status === "complete";
+                return (
+                  <View key={quest.id} style={[s.questGridCard, complete && s.questGridCardComplete]}>
+                    <View style={s.questCardHead}>
+                      <View style={[s.questIcon, isNativeApp && s.questIconApp]}>
+                        {complete ? <Feather name="check" size={15} color="#FFFFFF" /> : <Feather name="activity" size={15} color={isNativeApp ? "#0F7EA8" : "#E85D2A"} />}
+                      </View>
+                      <View style={s.questCardHeadText}>
+                        <Text style={s.questKicker}>{quest.type} · +{quest.xpReward} XP</Text>
+                        <Text style={[s.questTitle, isMobile && s.questTitleMobile]}>{quest.title}</Text>
+                      </View>
+                      <View style={[s.questBadge, complete && s.questBadgeComplete]}>
+                        <Text style={[s.questBadgeText, complete && s.questBadgeTextComplete]}>{complete ? "Logged" : quest.difficulty}</Text>
+                      </View>
+                    </View>
+                    <Text style={s.questDescription}>{quest.description}</Text>
+                    <View style={s.questCardPtsRow}>
+                      <Text style={s.questCardPts}>{questProgressLabel(quest)}</Text>
+                      <Text style={s.questCardPctText}>{progress}% complete</Text>
+                    </View>
+                    <ProgressBar value={progress} />
+                    <Text style={s.questCardFooter}>{quest.systemMessage}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <View style={s.questNotice}>
+              <Text style={s.questNoticeText}>The system calibrates targets slightly above your current baseline once per day.</Text>
+            </View>
+          </View>
+
+          <View style={[s.grid, isCompact && s.gridCompact, isMobile && s.gridMobile]}>
+            <View style={[s.mainColumn, isMobile && s.mainColumnMobile]}>
+
+              <View style={cardStyle}>
                 <SectionLabel>Favourite Games</SectionLabel>
-                <View style={s.favGrid}>
-                  {visibleFavouriteGames.slice(0, 3).map((game) => {
+                {favouriteGames.length ? (
+                <View style={[s.favGrid, isMobile && s.favGridMobile]}>
+                  {favouriteGames.slice(0, 3).map((game) => {
                     const category = getCategoryConfig(game.category);
                     return (
-                    <TouchableOpacity key={game.id} style={s.favItem} onPress={() => router.push(`/game/${game.id}` as any)}>
+                    <TouchableOpacity key={game.id} style={[s.favItem, isNativeApp && s.favItemApp]} onPress={() => router.push(`/game/${game.id}` as any)}>
                       <View style={[s.favIcon, { backgroundColor: `${game.color}18` }]}>
                         <Text style={s.taskEmoji}>{category.emoji}</Text>
                       </View>
@@ -602,36 +604,23 @@ export default function Dashboard() {
                     );
                   })}
                 </View>
+                ) : (
+                  <View style={s.favEmpty}>
+                    <Feather name="heart" size={17} color="#9E9E9E" />
+                    <Text style={s.favEmptyText}>No favourite games selected.</Text>
+                  </View>
+                )}
               </View>
 
-              <View style={s.card}>
-                <SectionLabel>Recommended For You</SectionLabel>
-                {[
-                  { title: "Improve Recall Speed", sub: "You slow down after 10 digits. This fixes it.", tag: "Memory" },
-                  { title: "Chunking Drill", sub: "Your weakest technique. 3 min exercise.", tag: "Technique" },
-                ].map((item) => (
-                  <View key={item.title} style={s.recommendRow}>
-                    <View style={s.recommendDot} />
-                    <View style={s.recommendContent}>
-                      <View style={s.recommendTop}>
-                        <Text style={s.recommendTitle}>{item.title}</Text>
-                        <View style={s.onTrackPill}><Text style={s.onTrackText}>{item.tag}</Text></View>
-                      </View>
-                      <Text style={s.recommendSub}>{item.sub}</Text>
-                    </View>
-                    <Feather name="arrow-right" size={16} color="#9E9E9E" />
-                  </View>
-                ))}
-              </View>
             </View>
 
-            <View style={s.sideColumn}>
-              <View style={[s.card, s.darkCard]}>
+            <View style={[s.sideColumn, isMobile && s.sideColumnMobile]}>
+              {!isNativeApp && <View style={darkCardStyle}>
                 <SectionLabel>Progress Snapshot</SectionLabel>
-                <View style={s.statGrid}>
-                  <StatCard label="Streak" value={String(gameStats.streakDays)} icon="🔥" />
-                  <StatCard label="XP Earned" value={gameStats.totalXp.toLocaleString("en-GB")} icon="✨" />
-                  <StatCard label="Best Recall" value={String(gameStats.bestNumbers)} icon="🧠" />
+                <View style={[s.statGrid, isMobile && s.statGridMobile]}>
+                  <StatCard label="Streak" value={String(gameStats.streakDays)} icon="🔥" style={isMobile && s.statMiniMobile} />
+                  <StatCard label="XP Earned" value={gameStats.totalXp.toLocaleString("en-GB")} icon="✨" style={isMobile && s.statMiniMobile} />
+                  <StatCard label="Best Recall" value={String(gameStats.bestNumbers)} icon="🧠" style={isMobile && s.statMiniMobile} />
                 </View>
                 <Text style={[s.chartLabel, s.darkMutedText]}>Weekly streak</Text>
                 <View style={s.weekStrip}>
@@ -644,7 +633,7 @@ export default function Dashboard() {
                     </View>
                   ))}
                 </View>
-                <Text style={[s.chartLabel, s.darkMutedText]}>Accuracy trend - last 7 attempts</Text>
+                <Text style={[s.chartLabel, s.chartLabelTrend, s.darkMutedText]}>Accuracy trend - last 7 attempts</Text>
                 <View style={s.chart}>
                   {(gameResults.length ? gameResults.slice(0, 7).reverse().map((result) => result.accuracy) : [0, 0, 0, 0, 0, 0, 0]).map((value, index) => (
                     <View key={index} style={s.chartColumn}>
@@ -653,78 +642,29 @@ export default function Dashboard() {
                     </View>
                   ))}
                 </View>
-              </View>
+              </View>}
 
-              <View style={[s.card, s.darkCard]}>
-                <View style={s.cardHeader}>
-                  <View>
-                    <SectionLabel>Vault Preview</SectionLabel>
-                    <Text style={[s.cardTitle, s.darkCardTitle]}>Memory Techniques</Text>
-                  </View>
-                  <View style={s.onTrackPill}><Text style={s.onTrackText}>2 / 5 unlocked</Text></View>
-                </View>
-                <View style={s.listStack}>
-                  {TECHNIQUES.map((technique) => (
-                    <View key={technique.name} style={[s.techniqueRow, s.darkSubPanel, !technique.unlocked && s.techniqueLocked]}>
-                      <View style={[s.techniqueIcon, !technique.unlocked && s.techniqueIconLocked]}>
-                        <Feather name={technique.unlocked ? "check" : "lock"} size={13} color={technique.unlocked ? "#E85D2A" : "#9E9E9E"} />
-                      </View>
-                      <Text style={[s.techniqueText, !technique.unlocked && s.techniqueTextLocked]}>{technique.name}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              <View style={[s.card, s.darkCard]}>
-                <View style={s.cardHeader}>
-                  <View>
-                    <SectionLabel>Leaderboard</SectionLabel>
-                    <Text style={[s.cardTitle, s.darkCardTitle]}>Top This Week</Text>
-                  </View>
-                  <View style={s.segment}>
-                    {(["Global", "Friends"] as const).map((filter) => (
-                      <TouchableOpacity
-                        key={filter}
-                        style={[s.segmentBtn, leaderboardFilter === filter && s.segmentBtnActive]}
-                        onPress={() => setLeaderboardFilter(filter)}
-                      >
-                        <Text style={[s.segmentText, leaderboardFilter === filter && s.segmentTextActive]}>{filter}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-                <View style={s.listStack}>
-                  {leaderboardRows.map((row) => (
-                    <View key={`${row.rank}-${row.name}`} style={[s.leaderRow, s.darkSubPanel, row.you && s.leaderRowYou]}>
-                      <View style={[s.rankBadge, row.rank === 1 && s.rankGold, row.rank === 2 && s.rankSilver, row.rank === 3 && s.rankBronze]}>
-                        <Text style={s.rankText}>{row.rank}</Text>
-                      </View>
-                      <Text style={[s.leaderName, row.you && s.leaderNameYou]}>{row.name}{row.you ? " · you" : ""}</Text>
-                      <View style={s.leaderXp}>
-                        <Text style={s.leaderEmoji}>✨</Text>
-                        <Text style={[s.leaderXpText, row.you && s.leaderNameYou]}>{row.xp.toLocaleString("en-GB")}</Text>
-                        <Text style={s.leaderXpLabel}>XP</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
             </View>
 
-            <View style={[s.card, s.darkCard, s.performanceCard]}>
-              <View style={s.cardHeader}>
+            {!isNativeApp && <View style={[s.card, s.darkCard, s.performanceCard, isMobile && s.cardMobile, isMobile && s.performanceCardMobile]}>
+              <View style={[s.cardHeader, isMobile && s.cardHeaderMobile]}>
                 <View>
                   <SectionLabel>Performance Graph</SectionLabel>
                   <Text style={[s.cardTitle, s.darkCardTitle]}>Points per second by game</Text>
                 </View>
                 {focusedGraphResult && (
-                  <View style={s.performanceScorePill}>
+                  <View style={[s.performanceScorePill, isMobile && s.performanceScorePillMobile]}>
                     <Text style={s.performanceScore}>{focusedGraphResult.pointsPerSecond.toFixed(2)}</Text>
                     <Text style={s.performanceScoreLabel}>points/sec</Text>
                   </View>
                 )}
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.graphSelector} contentContainerStyle={s.graphSelectorContent}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={[s.graphSelector, isMobile && s.graphSelectorMobile]}
+                contentContainerStyle={[s.graphSelectorContent, isMobile && s.graphSelectorContentMobile]}
+              >
                 {GAMES.map((game) => (
                   <TouchableOpacity
                     key={game.id}
@@ -738,7 +678,7 @@ export default function Dashboard() {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-              <View style={s.timeScaleRow}>
+              <View style={[s.timeScaleRow, isMobile && s.timeScaleRowMobile]}>
                 {GRAPH_SCALES.map((scale) => (
                   <TouchableOpacity
                     key={scale.id}
@@ -756,9 +696,14 @@ export default function Dashboard() {
                   {graphSelected ? "Wheel zoom enabled" : "Click graph to enable wheel zoom"}
                 </Text>
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.graphChartScroll} contentContainerStyle={s.graphChartScrollContent}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={[s.graphChartScroll, isMobile && s.graphChartScrollMobile]}
+                contentContainerStyle={[s.graphChartScrollContent, isMobile && s.graphChartScrollContentMobile]}
+              >
                 <View
-                  style={[s.graphLineChart, graphSelected && s.graphLineChartSelected]}
+                  style={[s.graphLineChart, isMobile && s.graphLineChartMobile, graphSelected && s.graphLineChartSelected]}
                   {...({
                     onClick: () => setGraphSelected(true),
                     onPointerDown: () => setGraphSelected(true),
@@ -768,7 +713,7 @@ export default function Dashboard() {
                 >
                   <View style={s.graphLineGrid} />
                   <View style={[s.graphTodayMarker, { left: GRAPH_PADDING.left + plotWidth }]} />
-                  <Text style={[s.graphTodayLabel, { left: GRAPH_PADDING.left + plotWidth }]}>
+                  <Text style={[s.graphTodayLabel, isMobile && s.graphTodayLabelMobile, { left: GRAPH_PADDING.left + plotWidth }]}>
                     {graphScale === "year" ? "Now" : "Today"}
                   </Text>
                   {graphLineSegments.map((segment) => (
@@ -806,7 +751,7 @@ export default function Dashboard() {
                     );
                   })}
                   {graphAxisLabels.map((label) => (
-                    <Text key={label.id} style={[s.graphAxisLabel, { left: label.left }]}>{label.label}</Text>
+                    <Text key={label.id} style={[s.graphAxisLabel, isMobile && s.graphAxisLabelMobile, { left: label.left }]}>{label.label}</Text>
                   ))}
                   {!graphLinePoints.length && (
                     <View style={s.graphEmptyState}>
@@ -816,7 +761,7 @@ export default function Dashboard() {
                   )}
                 </View>
               </ScrollView>
-              <View style={s.graphDetailPanelWide}>
+              <View style={[s.graphDetailPanelWide, isMobile && s.graphDetailPanelWideMobile]}>
                 {focusedGraphResult ? (
                   <>
                     <View style={s.graphDetailTop}>
@@ -835,135 +780,30 @@ export default function Dashboard() {
                   <Text style={s.graphDetailText}>Select a game with saved attempts to see the full attempt breakdown.</Text>
                 )}
               </View>
-            </View>
+            </View>}
           </View>
 
-          <Modal transparent visible={goalModalOpen} animationType="fade" onRequestClose={() => setGoalModalOpen(false)}>
+          {!isNativeApp && <Modal transparent visible={leaderboardOpen} animationType="fade" onRequestClose={() => setLeaderboardOpen(false)}>
             <View style={s.modalRoot}>
-              <TouchableOpacity style={s.modalScrim} activeOpacity={1} onPress={() => setGoalModalOpen(false)} />
-              <Pressable style={s.modalCard} onPress={() => setMetricMenuOpen(false)}>
+              <TouchableOpacity activeOpacity={1} style={s.modalScrim} onPress={() => setLeaderboardOpen(false)} />
+              <View style={[s.leaderboardModalCard, isMobile && s.leaderboardModalCardMobile]}>
                 <View style={s.modalHeader}>
                   <View>
-                    <SectionLabel>Goal Settings</SectionLabel>
-                    <Text style={s.modalTitle}>{editingGoalIndex === null ? "Add a goal" : "Edit goal"}</Text>
+                    <Text style={[s.modalTitle, s.leaderboardModalTitle]}>Leaderboard</Text>
+                    <Text style={s.leaderboardModalSub}>Your position is pinned first, followed by the top XP ranks.</Text>
                   </View>
-                  <TouchableOpacity style={s.modalClose} onPress={() => setGoalModalOpen(false)}>
-                    <Feather name="x" size={17} color="#9E9E9E" />
+                  <TouchableOpacity style={s.modalClose} onPress={() => setLeaderboardOpen(false)}>
+                    <Feather name="x" size={16} color="#121212" />
                   </TouchableOpacity>
                 </View>
-
-                <Text style={s.inputLabel}>Goal</Text>
-                <TextInput
-                  style={s.modalInput}
-                  value={draftGoalText}
-                  onChangeText={(value) => {
-                    setMetricMenuOpen(false);
-                    setDraftGoalText(value);
-                  }}
-                  placeholder="Remember digits"
-                  placeholderTextColor="#9E9E9E"
-                />
-
-                <Text style={s.inputLabel}>Tag</Text>
-                <View style={s.goalTypeRow}>
-                  {GAME_CATEGORIES.map((category) => (
-                    <TouchableOpacity key={category.id} style={[s.goalTypeBtn, draftGoalTag === category.id && s.goalTypeBtnActive]} onPress={() => selectGoalTag(category.id)}>
-                      <Text style={[s.goalTypeText, draftGoalTag === category.id && s.goalTypeTextActive]}>{category.title}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={s.inputLabel}>Target</Text>
-                <View style={s.goalTargetGrid}>
-                  <View style={s.goalTargetField}>
-                    <TextInput
-                      style={s.modalInput}
-                      value={draftTargetCount}
-                      onChangeText={(value) => {
-                        setMetricMenuOpen(false);
-                        setDraftTargetCount(value.replace(/[^0-9]/g, ""));
-                      }}
-                      keyboardType="number-pad"
-                      placeholder="20"
-                      placeholderTextColor="#9E9E9E"
-                    />
-                  </View>
-                  <View style={s.goalTargetField}>
-                    <TouchableOpacity
-                      style={s.metricSelect}
-                      onPress={(event) => {
-                        event.stopPropagation?.();
-                        setMetricMenuOpen((open) => !open);
-                      }}
-                    >
-                      <Text style={s.metricSelectText}>{draftTargetMetric}</Text>
-                      <Feather name="chevron-down" size={14} color="#6A6A6A" />
-                    </TouchableOpacity>
-                    {metricMenuOpen && (
-                      <View style={s.metricMenu}>
-                        <ScrollView style={s.metricMenuScroll} showsVerticalScrollIndicator={draftMetricOptions.length > 7} nestedScrollEnabled>
-                          {draftMetricOptions.map((option) => (
-                            <TouchableOpacity
-                              key={option}
-                              style={s.metricMenuItem}
-                              onPress={(event) => {
-                                event.stopPropagation?.();
-                                setDraftTargetMetric(option);
-                                setMetricMenuOpen(false);
-                              }}
-                            >
-                              <Text style={[s.goalTypeText, draftTargetMetric === option && s.goalTypeTextActive]}>{option}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                  <View style={s.goalTargetField}>
-                    <TextInput
-                      style={s.modalInput}
-                      value={draftTargetSeconds}
-                      onChangeText={(value) => {
-                        setMetricMenuOpen(false);
-                        setDraftTargetSeconds(value.replace(/[^0-9]/g, ""));
-                      }}
-                      keyboardType="number-pad"
-                      placeholder="60"
-                      placeholderTextColor="#9E9E9E"
-                    />
-                  </View>
-                </View>
-                <Text style={s.goalMetaText}>Example: remember 20 digits in 60 seconds.</Text>
-
-                <Text style={s.inputLabel}>Target date</Text>
-                <TextInput
-                  style={s.modalInput}
-                  value={draftDeadline}
-                  onChangeText={(value) => {
-                    setMetricMenuOpen(false);
-                    setDraftDeadline(value);
-                  }}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#9E9E9E"
-                />
-
-                <View style={s.modalActions}>
-                  <TouchableOpacity style={s.cancelBtn} onPress={() => setGoalModalOpen(false)}>
-                    <Text style={s.cancelBtnText}>Cancel</Text>
-                  </TouchableOpacity>
-                  {editingGoalIndex !== null && goals.length > 1 && (
-                    <TouchableOpacity style={s.cancelBtn} onPress={removeGoal}>
-                      <Text style={s.cancelBtnText}>Remove</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={s.saveBtn} onPress={saveGoalSettings}>
-                    <Text style={s.saveBtnText}>Save Goal</Text>
-                  </TouchableOpacity>
-                </View>
-              </Pressable>
+                <ScrollView style={s.leaderboardModalList} contentContainerStyle={s.leaderboardModalListContent} showsVerticalScrollIndicator={false}>
+                  {leaderboardModalRows.map((row) => <LeaderboardRow key={`modal-${row.rank}-${row.userId}`} row={row} isMobile={isMobile} showLevel />)}
+                </ScrollView>
+              </View>
             </View>
-          </Modal>
-        </>
+          </Modal>}
+
+        </View>
         );
       }}
     </DashboardShell>

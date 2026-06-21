@@ -1,6 +1,8 @@
-import { View, Text, TouchableOpacity, Image } from "react-native";
+import { useState } from "react";
+import { View, Text, TouchableOpacity, Image, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { hero as hs2 } from "./HeroSection.styles";
+import { buttonElevation } from "./webHover";
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
 const FEATURES = [
@@ -10,57 +12,96 @@ const FEATURES = [
 ];
 
 export default function HeroSection({ onScrollTo }: { onScrollTo: (id: string) => void }) {
+  const { width, height } = useWindowDimensions();
+  const [primaryHovered, setPrimaryHovered] = useState(false);
+  const [linkHovered, setLinkHovered] = useState(false);
+  const isMobile = width < 700;
+  const isTiny = width < 380;
+  const viewportHeight = height || (isMobile ? 680 : 820);
+  const sectionHeight = Math.max(isMobile ? 560 : 620, viewportHeight - (isMobile ? 28 : 36));
+  const heroSource = isMobile
+    ? require("../../assets/images/hero-mobile.jpg")
+    : require("../../assets/images/hero-desktop.jpg");
+
   return (
-    <View style={hs2.section}>
-      <Image source={require("../../assets/images/hero.png")} style={hs2.heroBgImage} resizeMode="cover" />
-      <View style={hs2.overlay} />
-      <View style={hs2.content}>
+    <View style={[hs2.section, isMobile && hs2.sectionMobile, { height: sectionHeight }]}>
+      <Image source={heroSource} style={[hs2.heroBgImage, isMobile && hs2.heroBgImageMobile]} resizeMode="cover" />
+      <View style={[hs2.overlay, isMobile && hs2.overlayMobile]} />
+      <View style={[hs2.content, isMobile && hs2.contentMobile]}>
 
         {/* Headline */}
-        <Text style={hs2.h1}>
+        <Text style={[hs2.h1, isMobile && hs2.h1Mobile, isTiny && hs2.h1Tiny]}>
           Train your{"\n"}memory like{"\n"}
           <Text style={hs2.h1Em}>a skill.</Text>
         </Text>
 
         {/* Subtext */}
-        <Text style={hs2.subText}>
+        <Text style={[hs2.subText, isMobile && hs2.subTextMobile]}>
           Remember numbers, names, anything.{"\n"}
           With daily practice, become unforgettable.
         </Text>
 
         {/* Buttons */}
-        <View style={hs2.btnRow}>
-          <TouchableOpacity
-            style={hs2.btnPrimary}
-            onPress={() => router.push("/login")}
-            // @ts-ignore
-            onMouseEnter={(e: any) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(232,93,42,0.35)"; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
-          >
-            <Text style={hs2.btnPrimaryText}>Start training</Text>
-          </TouchableOpacity>
+        {!isMobile && (
+          <View style={hs2.btnRow}>
+            <TouchableOpacity
+              style={[hs2.btnPrimary, buttonElevation(primaryHovered)]}
+              onPress={() => router.push("/login")}
+              // @ts-ignore web-only hover
+              onMouseEnter={() => setPrimaryHovered(true)}
+              onMouseLeave={() => setPrimaryHovered(false)}
+            >
+              <Text style={hs2.btnPrimaryText}>Start training</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={hs2.btnLink}
-            onPress={() => onScrollTo("memory-test")}
-            // @ts-ignore
-            onMouseEnter={(e: any) => { e.currentTarget.style.color = "#121212"; }}
-            onMouseLeave={(e: any) => { e.currentTarget.style.color = ""; }}
-          >
-            <Text style={hs2.btnLinkText}>Learn more →</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={hs2.btnLink}
+              onPress={() => onScrollTo("memory-test")}
+              // @ts-ignore web-only hover
+              onMouseEnter={() => setLinkHovered(true)}
+              onMouseLeave={() => setLinkHovered(false)}
+            >
+              <Text style={[hs2.btnLinkText, linkHovered && hs2.btnLinkTextHover]}>Learn more →</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Feature strip */}
-        <View style={hs2.featureStrip}>
-          {FEATURES.map((f, i) => (
-            <View key={f.title} style={[hs2.featureItem, i === 0 && hs2.featureItemFirst]}>
-              <Image source={f.icon} style={hs2.featureIconImg} resizeMode="cover" />
-              <Text style={hs2.featureTitle}>{f.title}</Text>
-              <Text style={hs2.featureSub}>{f.sub}</Text>
+        {isMobile ? (
+          <View style={hs2.mobileActionStrip}>
+            <View style={hs2.btnRowMobile}>
+              <TouchableOpacity
+                style={[hs2.btnPrimary, hs2.btnPrimaryMobile, buttonElevation(primaryHovered)]}
+                onPress={() => router.push("/login")}
+                // @ts-ignore web-only hover
+                onMouseEnter={() => setPrimaryHovered(true)}
+                onMouseLeave={() => setPrimaryHovered(false)}
+              >
+                <Text style={hs2.btnPrimaryText}>Start training</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[hs2.btnLink, hs2.btnLinkMobile]}
+                onPress={() => onScrollTo("memory-test")}
+                // @ts-ignore web-only hover
+                onMouseEnter={() => setLinkHovered(true)}
+                onMouseLeave={() => setLinkHovered(false)}
+              >
+                <Text style={[hs2.btnLinkText, hs2.btnLinkTextMobile, linkHovered && hs2.btnLinkTextHover]}>Learn more →</Text>
+              </TouchableOpacity>
             </View>
-          ))}
-        </View>
+          </View>
+        ) : (
+          <View style={hs2.featureStrip}>
+            {FEATURES.map((f, i) => (
+              <View key={f.title} style={[hs2.featureItem, i === 0 && hs2.featureItemFirst]}>
+                <Image source={f.icon} style={hs2.featureIconImg} resizeMode="cover" />
+                <Text style={hs2.featureTitle}>{f.title}</Text>
+                <Text style={hs2.featureSub}>{f.sub}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
       </View>
     </View>

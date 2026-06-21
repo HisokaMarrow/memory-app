@@ -1,11 +1,11 @@
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Image, Platform, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "../../lib/supabase";
-import { calculateGameStats, loadGameResults } from "../games/resultsStore";
+import { calculateGameStats, clearActiveResultsUser, loadGameResults, setActiveResultsUser } from "../games/resultsStore";
 import { dashboard as s } from "../../styles/screens/dashboard.styles";
 import DashboardFooter from "./DashboardFooter";
 import DashboardHeader from "./DashboardHeader";
@@ -30,11 +30,51 @@ type DashboardShellProps = {
   headerAction?: ReactNode;
   actionLabel?: string;
   onActionPress?: () => void;
-  beige?: boolean;
   previewEnabled?: boolean;
+  lightHeader?: boolean;
 };
 
 const PERSIST_KEY = "memoro-shell-state";
+let cachedShellUser: User | null = null;
+let pendingShellSessionCheck: Promise<User | null> | null = null;
+let shellSessionVersion = 0;
+
+const MOBILE_NAV_ITEMS = [
+  { id: "games", label: "Games", icon: "zap" },
+  { id: "dashboard", label: "Dashboard", icon: "grid" },
+  { id: "insights", label: "Progress", icon: "bar-chart-2", center: true },
+  { id: "vault", label: "Vault", icon: "book-open" },
+  { id: "profile", label: "Profile", icon: "user" },
+] as const;
+
+function loadShellSessionUser() {
+  if (!pendingShellSessionCheck) {
+    const checkVersion = shellSessionVersion;
+    pendingShellSessionCheck = supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (checkVersion !== shellSessionVersion) return cachedShellUser;
+        cachedShellUser = session?.user ?? null;
+        return cachedShellUser;
+      })
+      .finally(() => {
+        pendingShellSessionCheck = null;
+      });
+  }
+
+  return pendingShellSessionCheck;
+}
+
+function canUseWindowEvents() {
+  return typeof window !== "undefined" && typeof window.addEventListener === "function";
+}
+
+function navigateMobileTab(id: typeof MOBILE_NAV_ITEMS[number]["id"]) {
+  if (id === "dashboard") router.replace("/dashboard");
+  if (id === "games") router.replace("/games" as any);
+  if (id === "insights") router.replace("/insights" as any);
+  if (id === "vault") router.replace("/vault" as any);
+  if (id === "profile") router.replace("/profile" as any);
+}
 
 export default function DashboardShell({
   active,
@@ -44,21 +84,24 @@ export default function DashboardShell({
   headerAction,
   actionLabel,
   onActionPress,
-  beige = false,
   previewEnabled = true,
+  lightHeader = false,
 }: DashboardShellProps) {
   const { width } = useWindowDimensions();
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
+  const [checkingSession, setCheckingSession] = useState(() => !cachedShellUser);
+  const [user, setUser] = useState<User | null>(() => cachedShellUser);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [displayNameOverride, setDisplayNameOverride] = useState("");
   const [avatarColor, setAvatarColor] = useState("#E85D2A");
   const [avatarImageUri, setAvatarImageUri] = useState("");
+  const [profileStateUserId, setProfileStateUserId] = useState<string | null>(null);
   const [headerStreakDays, setHeaderStreakDays] = useState(0);
+  const signingOutRef = useRef(false);
 
   const isCompact = width < 980;
   const isMobile = width < 640;
+  const isNativeApp = Platform.OS !== "web";
 
   useEffect(() => {
     const isWebRuntime = typeof window !== "undefined";
@@ -74,23 +117,41 @@ export default function DashboardShell({
     }
 
     let alive = true;
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const applySessionUser = (nextUser: User | null, redirectIfMissing = false) => {
       if (!alive) return;
-      if (!session?.user) {
-        router.replace("/login");
+      if (signingOutRef.current && nextUser) return;
+      cachedShellUser = nextUser;
+      if (!nextUser) {
+        clearActiveResultsUser();
+        setUser(null);
+        setCheckingSession(false);
+        if (signingOutRef.current) return;
+        if (redirectIfMissing) router.replace("/login");
         return;
       }
-      setUser(session.user);
+      setActiveResultsUser(nextUser.id);
+      setUser(nextUser);
       setCheckingSession(false);
-    });
+    };
+
+    if (cachedShellUser) {
+      applySessionUser(cachedShellUser);
+    }
+
+    loadShellSessionUser()
+      .then((nextUser) => applySessionUser(nextUser, true))
+      .catch(() => {
+        if (!alive) return;
+        if (!cachedShellUser) {
+          clearActiveResultsUser();
+          setUser(null);
+          setCheckingSession(false);
+          if (!signingOutRef.current) router.replace("/login");
+        }
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session?.user) {
-        router.replace("/login");
-        return;
-      }
-      setUser(session.user);
-      setCheckingSession(false);
+      applySessionUser(session?.user ?? null, true);
     });
 
     return () => {
@@ -100,34 +161,71 @@ export default function DashboardShell({
   }, [previewEnabled]);
 
   useEffect(() => {
-    if (typeof localStorage === "undefined") return;
-
-    try {
-      const raw = localStorage.getItem(PERSIST_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (saved.displayNameOverride) setDisplayNameOverride(saved.displayNameOverride);
-      if (saved.avatarColor) setAvatarColor(saved.avatarColor);
-      if (saved.avatarImageUri) setAvatarImageUri(saved.avatarImageUri);
-    } catch {
-      // Ignore malformed shell state.
+    if (!user) {
+      setDisplayNameOverride("");
+      setAvatarColor("#E85D2A");
+      setAvatarImageUri("");
+      setProfileStateUserId(null);
+      return;
     }
-  }, []);
 
-  useEffect(() => {
-    if (typeof localStorage === "undefined") return;
-    localStorage.setItem(PERSIST_KEY, JSON.stringify({ displayNameOverride, avatarColor, avatarImageUri }));
-  }, [avatarColor, avatarImageUri, displayNameOverride]);
+    const metadata = user.user_metadata ?? {};
+    const fallbackName = metadata.full_name || metadata.name || user.email?.split("@")[0] || "";
+    const fallbackColor = metadata.avatar_color || "#E85D2A";
+    const fallbackImage = metadata.avatar_image_uri || "";
+    let nextName = fallbackName;
+    let nextColor = fallbackColor;
+    let nextImageUri = fallbackImage;
 
-  useEffect(() => {
-    const metadata = user?.user_metadata;
-    if (!metadata) return;
-    if (metadata.full_name || metadata.name) setDisplayNameOverride((current) => current || metadata.full_name || metadata.name);
-    if (metadata.avatar_color) setAvatarColor(metadata.avatar_color);
-    if (metadata.avatar_image_uri) setAvatarImageUri(metadata.avatar_image_uri);
+    if (typeof localStorage !== "undefined") {
+      try {
+        const raw = localStorage.getItem(`${PERSIST_KEY}:${user.id}`);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (typeof saved.displayNameOverride === "string") nextName = saved.displayNameOverride || fallbackName;
+          if (typeof saved.avatarColor === "string" && saved.avatarColor) nextColor = saved.avatarColor;
+          if (typeof saved.avatarImageUri === "string") nextImageUri = saved.avatarImageUri;
+        }
+      } catch {
+        // Ignore malformed shell state.
+      }
+    }
+
+    setDisplayNameOverride(nextName);
+    setAvatarColor(nextColor);
+    setAvatarImageUri(nextImageUri);
+    setProfileStateUserId(user.id);
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new Event("memoro-user-changed"));
+    }
   }, [user]);
 
   useEffect(() => {
+    if (!user || profileStateUserId !== user.id || typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(`${PERSIST_KEY}:${user.id}`, JSON.stringify({ displayNameOverride, avatarColor, avatarImageUri }));
+    } catch {
+      // Ignore malformed shell state.
+    }
+  }, [avatarColor, avatarImageUri, displayNameOverride, profileStateUserId, user]);
+
+  useEffect(() => {
+    if (!user || profileStateUserId !== user.id) return;
+    const metadata = user.user_metadata ?? {};
+    const displayName = displayNameOverride || metadata.full_name || metadata.name || user.email?.split("@")[0] || "athlete";
+
+    supabase.from("profiles").upsert({
+      id: user.id,
+      display_name: displayName,
+      avatar_color: avatarColor,
+      avatar_image_uri: avatarImageUri,
+      updated_at: new Date().toISOString(),
+    }).then(() => undefined);
+  }, [avatarColor, avatarImageUri, displayNameOverride, profileStateUserId, user]);
+
+  useEffect(() => {
+    if (checkingSession) return;
+
     let alive = true;
 
     async function refreshHeaderStreak() {
@@ -138,7 +236,7 @@ export default function DashboardShell({
 
     refreshHeaderStreak();
 
-    if (typeof window === "undefined") return () => {
+    if (!canUseWindowEvents()) return () => {
       alive = false;
     };
 
@@ -149,7 +247,7 @@ export default function DashboardShell({
       window.removeEventListener("focus", refreshHeaderStreak);
       window.removeEventListener("memoro-results-updated", refreshHeaderStreak);
     };
-  }, []);
+  }, [checkingSession, user?.id]);
 
   const profileName = useMemo(() => {
     const metaName = user?.user_metadata?.full_name || user?.user_metadata?.name;
@@ -158,9 +256,27 @@ export default function DashboardShell({
 
   const initial = profileName.slice(0, 1).toUpperCase();
 
-  async function signOut() {
-    await supabase.auth.signOut();
+  function signOut() {
+    signingOutRef.current = true;
+    shellSessionVersion += 1;
+    cachedShellUser = null;
+    pendingShellSessionCheck = null;
+    clearActiveResultsUser();
+    setSettingsOpen(false);
+    setProfileOpen(false);
+    setUser(null);
     router.replace("/");
+    globalThis.setTimeout(() => {
+      void supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+    }, 0);
+  }
+
+  function openProfileArea() {
+    if (isMobile) {
+      setSettingsOpen(true);
+      return;
+    }
+    setProfileOpen(true);
   }
 
   if (checkingSession) {
@@ -178,54 +294,126 @@ export default function DashboardShell({
   const pageBody = typeof children === "function" ? children(context) : children;
 
   return (
-    <View style={s.root}>
-      <DashboardHeader
-        avatarColor={avatarColor}
-        avatarImageUri={avatarImageUri}
-        initial={initial}
-        isCompact={isCompact}
-        isMobile={isMobile}
-        onOpenProfile={() => setProfileOpen(true)}
-        streakDays={headerStreakDays}
-      />
-
-      <View style={[s.body, isCompact && s.bodyCompact]}>
-        <DashboardSidebar
+    <View style={[s.root, isNativeApp && s.rootApp]}>
+      {/* Top header bar only on mobile/compact web (for the hamburger nav).
+          On desktop it's removed — logo lives in the sidebar, controls in the page header. */}
+      {!isNativeApp && isCompact && (
+        <DashboardHeader
           active={active}
+          avatarColor={avatarColor}
+          avatarImageUri={avatarImageUri}
+          initial={initial}
           isCompact={isCompact}
           isMobile={isMobile}
+          onOpenProfile={openProfileArea}
           onOpenSettings={() => setSettingsOpen(true)}
           onSignOut={signOut}
+          streakDays={headerStreakDays}
         />
+      )}
 
-        <View style={[s.contentFrame, beige && s.contentFrameBeige, isCompact && s.contentFrameCompact]}>
-          {!beige && (
-            <>
-              <Image source={require("../../assets/images/dashboard-background.png")} resizeMode="cover" style={s.dashboardBg} />
-              <View style={s.dashboardBgWash} pointerEvents="none" />
-            </>
-          )}
+      <View style={[s.body, !isCompact && !isNativeApp && s.bodyDesktop, isCompact && s.bodyCompact, isMobile && s.bodyMobile, isNativeApp && s.bodyApp, isNativeApp && s.bodyAppLight]}>
+        {!isMobile && !isNativeApp && (
+          <DashboardSidebar
+            active={active}
+            isCompact={isCompact}
+            isMobile={isMobile}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onSignOut={signOut}
+          />
+        )}
 
-          <ScrollView style={s.content} contentContainerStyle={[s.contentInner, isCompact && s.contentInnerCompact]} showsVerticalScrollIndicator={false}>
-            <View style={[s.pageHeader, isMobile && s.pageHeaderMobile]}>
-              <View>
-                <Text style={s.h1}>{pageTitle}</Text>
-                <Text style={s.headerSub}>{pageSubtitle}</Text>
+        <View style={[s.contentFrame, isCompact && s.contentFrameCompact, isMobile && s.contentFrameMobile, isNativeApp && s.contentFrameApp, isNativeApp && s.contentFrameAppLight]}>
+          <View pointerEvents="none" style={[s.footerBounceBlocker, isNativeApp && s.footerBounceBlockerApp]} />
+          <ScrollView
+            style={[s.content, isMobile && s.contentMobile, isNativeApp && s.contentApp]}
+            contentContainerStyle={[
+              s.contentInner,
+              isCompact && s.contentInnerCompact,
+              isMobile && s.contentInnerMobile,
+              isMobile && Platform.OS === "web" && s.contentInnerMobileWeb,
+              isNativeApp && s.contentInnerApp,
+              isNativeApp && s.contentInnerAppPolished,
+            ]}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={[s.pageSurface, isNativeApp && s.pageSurfaceApp]}>
+              <View pointerEvents="none" style={s.dashboardBgLayer}>
+                <Image source={require("../../assets/images/dashboard-background.png")} resizeMode="cover" style={[s.dashboardBg, isNativeApp && s.dashboardBgApp]} />
+                <View style={[s.dashboardBgWash, isNativeApp && s.dashboardBgWashApp]} />
               </View>
-              {headerAction ? headerAction : actionLabel && (
-                <TouchableOpacity style={s.startBtn} onPress={onActionPress}>
-                  <Feather name="play" size={14} color="#FFFFFF" />
-                  <Text style={s.startBtnText}>{actionLabel}</Text>
-                </TouchableOpacity>
-              )}
+              <View style={s.pageSurfaceContent}>
+                <View style={[s.pageHeader, lightHeader && s.pageHeaderLight, isMobile && s.pageHeaderMobile, isNativeApp && s.pageHeaderApp]}>
+                  <View>
+                    <Text style={[s.h1, lightHeader && s.h1Light, isNativeApp && s.h1App]}>{pageTitle}</Text>
+                    <Text style={[s.headerSub, lightHeader && s.headerSubLight, isNativeApp && s.headerSubApp]}>{pageSubtitle}</Text>
+                  </View>
+                  {!isCompact && !isNativeApp ? (
+                    <View style={s.headerRight}>
+                      <View style={s.streakPill}>
+                        <Text style={s.headerEmoji}>🔥</Text>
+                        <Text style={s.streakValue}>{headerStreakDays}</Text>
+                        <Text style={s.streakText}>day streak</Text>
+                      </View>
+                      <TouchableOpacity style={[s.avatar, { backgroundColor: avatarColor }]} onPress={openProfileArea}>
+                        {avatarImageUri ? (
+                          <Image source={{ uri: avatarImageUri }} style={s.avatarImage} resizeMode="cover" />
+                        ) : (
+                          <Text style={s.avatarText}>{initial}</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  ) : headerAction ? headerAction : actionLabel ? (
+                    <TouchableOpacity style={[s.startBtn, isMobile && s.startBtnMobile, isNativeApp && s.startBtnApp]} onPress={onActionPress}>
+                      <Feather name="play" size={14} color="#FFFFFF" />
+                      <Text style={s.startBtnText}>{actionLabel}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {pageBody}
+              </View>
             </View>
 
-            {pageBody}
-
-            <DashboardFooter beige={beige} />
+            {!isNativeApp && <DashboardFooter hasBottomNav={false} />}
           </ScrollView>
         </View>
       </View>
+
+      {isNativeApp && (
+        <View style={[s.mobileBottomNav, s.mobileBottomNavNative]}>
+          {MOBILE_NAV_ITEMS.map((item) => {
+            const on = active === item.id;
+            const center = "center" in item && item.center;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${item.label}`}
+                style={[s.mobileTab, center && s.mobileTabCenter, on && s.mobileTabActive, on && s.mobileTabActiveApp]}
+                onPress={() => {
+                  if (on) return;
+                  navigateMobileTab(item.id);
+                }}
+              >
+                <View style={[
+                  s.mobileTabIconShell,
+                  center && s.mobileTabIconShellCenter,
+                  on && s.mobileTabIconShellActive,
+                  on && s.mobileTabIconShellActiveApp,
+                  center && on && s.mobileTabIconShellCenterActive,
+                  center && on && s.mobileTabIconShellCenterActiveApp,
+                ]}>
+                  <Feather name={item.icon as any} size={center ? 21 : 18} color={on && center ? "#FFFFFF" : on ? "#0F7EA8" : "#7A8A95"} />
+                </View>
+                <Text style={[s.mobileTabText, s.mobileTabTextApp, on && s.mobileTabTextActive, on && s.mobileTabTextActiveApp]}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
       <SettingsPanel
         visible={settingsOpen}

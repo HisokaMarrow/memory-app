@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Animated, Image, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import type { User } from "@supabase/supabase-js";
 
@@ -49,7 +49,7 @@ export default function SettingsPanel({
       Animated.timing(motion, {
         toValue: 1,
         duration: 180,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web",
       }).start();
       return;
     }
@@ -57,7 +57,7 @@ export default function SettingsPanel({
     Animated.timing(motion, {
       toValue: 0,
       duration: 150,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     }).start(({ finished }) => {
       if (finished) setMounted(false);
     });
@@ -97,6 +97,18 @@ export default function SettingsPanel({
         });
         if (error) {
           showMessage(error.message, "bad");
+          return;
+        }
+
+        const { error: profileError } = await supabase.from("profiles").upsert({
+          id: user.id,
+          display_name: cleanName,
+          avatar_color: selectedColor,
+          avatar_image_uri: selectedAvatarImageUri,
+          updated_at: new Date().toISOString(),
+        });
+        if (profileError) {
+          showMessage(profileError.message, "bad");
           return;
         }
       }
@@ -192,8 +204,8 @@ export default function SettingsPanel({
           <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
             <View style={s.header}>
               <View style={s.titleBlock}>
-                <Text style={s.eyebrow}>MEMORO settings</Text>
-                <Text style={s.title}>Settings</Text>
+                <Text style={s.eyebrow}>{isMobile ? "MEMORO profile" : "MEMORO settings"}</Text>
+                <Text style={s.title}>{isMobile ? "Profile & Settings" : "Settings"}</Text>
                 <Text style={s.subtitle}>Your profile, account security, and help in one place.</Text>
               </View>
               <TouchableOpacity style={s.closeBtn} onPress={onClose}>
@@ -223,7 +235,7 @@ export default function SettingsPanel({
               <View style={s.section}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionIcon}><Text style={s.sectionEmoji}>🎯</Text></View>
-                  <View>
+                  <View style={s.sectionHeaderCopy}>
                     <Text style={s.sectionTitle}>Profile</Text>
                     <Text style={s.sectionSub}>Change how your name and avatar appear on the dashboard.</Text>
                   </View>
@@ -275,7 +287,7 @@ export default function SettingsPanel({
               <View style={s.section}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionIcon}><Text style={s.sectionEmoji}>✅</Text></View>
-                  <View>
+                  <View style={s.sectionHeaderCopy}>
                     <Text style={s.sectionTitle}>Account</Text>
                     <Text style={s.sectionSub}>Update email or password for the signed-in Supabase account.</Text>
                   </View>
@@ -303,7 +315,7 @@ export default function SettingsPanel({
               <View style={s.section}>
                 <View style={s.sectionHeader}>
                   <View style={s.sectionIcon}><Text style={s.sectionEmoji}>🧠</Text></View>
-                  <View>
+                  <View style={s.sectionHeaderCopy}>
                     <Text style={s.sectionTitle}>Help</Text>
                     <Text style={s.sectionSub}>Quick support notes without adding another dashboard icon.</Text>
                   </View>
@@ -312,7 +324,7 @@ export default function SettingsPanel({
                 <View style={s.helpList}>
                   {[
                     ["Training", "Start with Quick Start when you want the app to choose the best exercise."],
-                    ["Goals", "Use the gear on Your Goal to change target type, score, and deadline."],
+                    ["Quests", "Daily quests calibrate above your latest baseline and sync with your signed-in account."],
                     ["Account", "Email changes may require inbox confirmation before Supabase applies them."],
                   ].map(([title, text]) => (
                     <View key={title} style={s.helpItem}>

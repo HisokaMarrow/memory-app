@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
-import { View, Text } from "react-native";
+import { View, Text, useWindowDimensions } from "react-native";
 import { dash as ds } from "./DashboardPreviewSection.styles";
+import { useInViewOnce } from "./useInViewOnce";
 
 // ── Dashboard Preview ─────────────────────────────────────────────────────────
 const CHART_VALS = [45, 52, 48, 60, 58, 70, 67, 80, 75, 88, 85, 94];
 const LAST_BAR   = CHART_VALS.length - 1;
-const GOALS = [
-  { label: "Memorise 20 digits",   pct: 85 },
-  { label: "Mental Maths Level 5", pct: 62 },
-  { label: "500 Vocabulary Words", pct: 44 },
+const QUESTS = [
+  { label: "Precision Protocol",    pct: 85 },
+  { label: "Memory Extension Trial", pct: 62 },
+  { label: "Archive Link",          pct: 44 },
 ];
 const STATS = [
   { label: "Memory Digits", val: "17",    note: "↑ from 12", icon: "🧠" },
@@ -18,26 +18,22 @@ const STATS = [
 ];
 
 export default function DashboardPreviewSection() {
-  const [animated, setAnimated] = useState(false);
-  useEffect(() => {
-    const el = document.getElementById("dashboard-section");
-    if (!el) return;
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setAnimated(true); }, { threshold: 0.3 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
+  const { width } = useWindowDimensions();
+  const animated = useInViewOnce("dashboard-section");
+  const isMobile = width < 700;
+  const isTablet = width < 980;
 
   return (
-    <View nativeID="dashboard-section" style={ds.section}>
+    <View nativeID="dashboard-section" style={[ds.section, isMobile && ds.sectionMobile]}>
       <View style={ds.inner}>
-        <View style={ds.head}>
+        <View style={[ds.head, isMobile && ds.headMobile]}>
           <Text style={ds.eyebrow}>Progress Dashboard</Text>
-          <Text style={ds.h2}>Watch yourself improve</Text>
+          <Text style={[ds.h2, isMobile && ds.h2Mobile]}>Watch yourself improve</Text>
         </View>
-        <View style={ds.panel}>
-          <View style={ds.statsGrid}>
+        <View style={[ds.panel, isMobile && ds.panelMobile]}>
+          <View style={[ds.statsGrid, isTablet && ds.statsGridTablet, isMobile && ds.statsGridMobile]}>
             {STATS.map((s) => (
-              <View key={s.label} style={ds.statCard}>
+              <View key={s.label} style={[ds.statCard, isMobile && ds.statCardMobile]}>
                 <View style={ds.statHeader}>
                   <Text style={ds.statLabel}>{s.label}</Text>
                   <Text style={ds.statIconText}>{s.icon}</Text>
@@ -47,8 +43,8 @@ export default function DashboardPreviewSection() {
               </View>
             ))}
           </View>
-          <View style={ds.chartsGrid}>
-            <View style={ds.chartCard}>
+          <View style={[ds.chartsGrid, isMobile && ds.chartsGridMobile]}>
+            <View style={[ds.chartCard, isMobile && ds.chartCardMobile]}>
               <Text style={ds.chartLabel}>Memory Score — Last 12 Sessions</Text>
               <View style={ds.chartBars}>
                 {CHART_VALS.map((v, i) => (
@@ -60,10 +56,10 @@ export default function DashboardPreviewSection() {
                 <Text style={ds.chartFooterGold}>↑ +49 pts</Text>
               </View>
             </View>
-            <View style={ds.chartCard}>
-              <Text style={ds.goalsLabel}>Active Goals</Text>
-              {GOALS.map((g, i) => (
-                <View key={g.label} style={i < GOALS.length - 1 ? ds.goalRow : ds.goalRowLast}>
+            <View style={[ds.chartCard, isMobile && ds.chartCardMobile]}>
+              <Text style={ds.goalsLabel}>Active Quests</Text>
+              {QUESTS.map((g, i) => (
+                <View key={g.label} style={i < QUESTS.length - 1 ? ds.goalRow : ds.goalRowLast}>
                   <View style={ds.goalHeader}>
                     <Text style={ds.goalTitle}>{g.label}</Text>
                     <Text style={ds.goalPct}>{g.pct}%</Text>

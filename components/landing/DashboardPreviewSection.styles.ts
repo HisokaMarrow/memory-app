@@ -8,10 +8,17 @@ export const dash = createWebStyles({
     paddingHorizontal: 56,
     backgroundColor:   P.green,
   },
+  sectionMobile: {
+    paddingVertical:   64,
+    paddingHorizontal: 20,
+  },
   inner: INNER_W as any,
   head: {
     alignItems:   "center",
     marginBottom: 60,
+  },
+  headMobile: {
+    marginBottom: 34,
   },
   eyebrow: {
     fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
@@ -27,8 +34,12 @@ export const dash = createWebStyles({
     fontSize:      50,
     fontWeight:    "600" as const,
     color:         P.white,
-    letterSpacing: -1.0,
+    letterSpacing: 0,
     textAlign:     "center",
+  },
+  h2Mobile: {
+    fontSize:   38,
+    lineHeight: 42,
   },
   panel: {
     backgroundColor: "rgba(255,255,255,0.04)",
@@ -37,11 +48,23 @@ export const dash = createWebStyles({
     borderRadius:    22,
     padding:         36,
   },
+  panelMobile: {
+    borderRadius: 16,
+    padding:      16,
+  },
   statsGrid: {
     display:             "grid" as any,
     gridTemplateColumns: "repeat(4, 1fr)" as any,
     gap:                 18,
     marginBottom:        36,
+  },
+  statsGridTablet: {
+    gridTemplateColumns: "repeat(2, 1fr)" as any,
+  },
+  statsGridMobile: {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))" as any,
+    gap:                 10,
+    marginBottom:        16,
   },
   statCard: {
     backgroundColor:   "rgba(255,255,255,0.06)",
@@ -50,6 +73,11 @@ export const dash = createWebStyles({
     paddingVertical:   22,
     borderWidth:       1,
     borderColor:       "rgba(255,255,255,0.07)",
+  },
+  statCardMobile: {
+    borderRadius:      12,
+    paddingHorizontal: 12,
+    paddingVertical:   14,
   },
   statHeader: {
     flexDirection:  "row",
@@ -80,12 +108,20 @@ export const dash = createWebStyles({
     gridTemplateColumns: "1fr 1fr" as any,
     gap:                 20,
   },
+  chartsGridMobile: {
+    gridTemplateColumns: "1fr" as any,
+    gap:                 12,
+  },
   chartCard: {
     backgroundColor: "rgba(255,255,255,0.03)",
     borderRadius:    14,
     padding:         24,
     borderWidth:     1,
     borderColor:     "rgba(255,255,255,0.05)",
+  },
+  chartCardMobile: {
+    borderRadius: 12,
+    padding:      16,
   },
   chartLabel: {
     fontFamily:   "Cormorant Garamond, Georgia, serif" as any,

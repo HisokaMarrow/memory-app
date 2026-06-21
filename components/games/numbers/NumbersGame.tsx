@@ -1,73 +1,68 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Modal, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import * as Speech from "expo-speech";
+import type { Voice } from "expo-speech";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
-import { saveGameResult, type StoredGameResult } from "../resultsStore";
+import { loadGameResults, readLocalGameResultsSnapshot, saveGameResult, type StoredGameResult } from "../resultsStore";
+import {
+  clampNumber,
+  clampIntervalSeconds,
+  clampSeconds,
+  cleanDecimalInput,
+  DEFAULT_SETTINGS,
+  digitsCorrectFor,
+  formatNumber,
+  INTERVAL_PRESETS,
+  randomBetween,
+  RECALL_TIME_PRESETS,
+  TIME_PRESETS,
+  type CheckedAnswer,
+  type Mode,
+  type Phase,
+  type Settings,
+  type VoiceOverMode,
+} from "./NumbersGame.logic";
 
-type Mode = "auto" | "manual";
-type Phase = "setup" | "countdown" | "memorise" | "recall" | "result";
-
-type Settings = {
-  mode: Mode;
-  intervalSeconds: number;
-  exerciseSeconds: number;
-  customExerciseSeconds: string;
-  useCustomTime: boolean;
-  digits: number;
-  min: string;
-  max: string;
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  0?: { transcript?: string };
 };
 
-type CheckedAnswer = {
-  index: number;
-  expected: string;
-  actual: string;
-  correct: boolean;
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: SpeechRecognitionResultLike[];
 };
 
-const DEFAULT_SETTINGS: Settings = {
-  mode: "auto",
-  intervalSeconds: 2,
-  exerciseSeconds: 60,
-  customExerciseSeconds: "90",
-  useCustomTime: false,
-  digits: 2,
-  min: "0",
-  max: "99",
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
 };
 
-const TIME_PRESETS = [30, 60, 120, 180];
-const INTERVAL_PRESETS = [1, 2, 3, 5];
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
-function clampNumber(value: number, fallback: number) {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(999, Math.max(0, Math.round(value)));
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
 }
 
-function clampSeconds(value: number, fallback: number) {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(3600, Math.max(5, Math.round(value)));
-}
-
-function formatNumber(value: number, digits: number) {
-  return String(value).padStart(digits, "0");
-}
-
-function randomBetween(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function digitsCorrectFor(expected: string, actual: string) {
-  return expected.split("").reduce((sum, char, index) => sum + (actual[index] === char ? 1 : 0), 0);
-}
-
-function StatTile({ label, value, color, light = false }: { label: string; value: string; color?: string; light?: boolean }) {
+function StatTile({ label, value, color, light = false, compact = false }: { label: string; value: string; color?: string; light?: boolean; compact?: boolean }) {
   return (
-    <View style={[s.statTile, light && s.statTileLight]}>
-      <Text style={[s.statValue, light && s.statValueLight, color && { color }]}>{value}</Text>
-      <Text style={[s.statLabel, light && s.statLabelLight]}>{label}</Text>
+    <View style={[s.statTile, light && s.statTileLight, compact && s.statTileMobile]}>
+      <Text style={[s.statValue, light && s.statValueLight, compact && s.statValueMobile, color && { color }]}>{value}</Text>
+      <Text style={[s.statLabel, light && s.statLabelLight, compact && s.statLabelMobile]}>{label}</Text>
     </View>
   );
 }
@@ -76,18 +71,22 @@ function Segmented<T extends string | number>({
   options,
   value,
   onChange,
+  compact = false,
+  labelForOption,
 }: {
   options: T[];
   value: T;
   onChange: (value: T) => void;
+  compact?: boolean;
+  labelForOption?: (value: T) => string;
 }) {
   return (
-    <View style={s.segmented}>
+    <View style={[s.segmented, compact && s.segmentedMobile]}>
       {options.map((option) => {
         const active = option === value;
         return (
-          <TouchableOpacity key={String(option)} style={[s.segment, active && s.segmentActive]} onPress={() => onChange(option)}>
-            <Text style={[s.segmentText, active && s.segmentTextActive]}>{String(option)}</Text>
+          <TouchableOpacity key={String(option)} style={[s.segment, compact && s.segmentMobile, active && s.segmentActive]} onPress={() => onChange(option)}>
+            <Text style={[s.segmentText, compact && s.segmentTextMobile, active && s.segmentTextActive]}>{labelForOption ? labelForOption(option) : String(option)}</Text>
           </TouchableOpacity>
         );
       })}
@@ -95,18 +94,195 @@ function Segmented<T extends string | number>({
   );
 }
 
-function FocusOverlay({ children }: { children: ReactNode }) {
+function FocusOverlay({ children, mobile = false }: { children: ReactNode; mobile?: boolean }) {
+  if (Platform.OS !== "web") {
+    return (
+      <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
+        <View style={s.focusOverlayNative}>
+          <View style={s.focusBlur} pointerEvents="none" />
+          <SafeAreaView edges={["top", "bottom"]} style={s.focusSafeAreaNative}>
+            <ScrollView
+              style={s.focusScrollNative}
+              contentContainerStyle={s.focusScrollContentNative}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={[s.focusCardNative, mobile && s.focusCardNativeMobile]}>{children}</View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal transparent visible animationType="fade" onRequestClose={() => {}}>
-      <View style={s.focusOverlay}>
+      <View style={[s.focusOverlay, mobile && s.focusOverlayMobile]}>
         <View style={s.focusBlur} pointerEvents="none" />
-        <View style={s.focusCard}>{children}</View>
+        <View style={[s.focusCard, mobile && s.focusCardMobile]}>{children}</View>
       </View>
     </Modal>
   );
 }
 
+function smartIntervalFromResults(results: StoredGameResult[], gameId: string) {
+  const latestManual = results
+    .filter((result) => result.gameId === gameId && result.mode === "manual" && result.numbersShown > 1 && result.timeTakenSeconds > 0)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+
+  if (!latestManual) return null;
+
+  const averageSwitchSeconds = latestManual.timeTakenSeconds / Math.max(1, latestManual.numbersShown - 1);
+  return clampIntervalSeconds(averageSwitchSeconds - 0.3, DEFAULT_SETTINGS.intervalSeconds);
+}
+
+function createResultId() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatRecallTime(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatSecondsLabel(value: number | "custom") {
+  if (value === "custom") return "custom";
+  if (value < 60) return `${value}s`;
+  return `${Math.round(value / 60)}m`;
+}
+
+function spokenDigits(value: string) {
+  const words: Record<string, string> = {
+    "0": "zero",
+    "1": "one",
+    "2": "two",
+    "3": "three",
+    "4": "four",
+    "5": "five",
+    "6": "six",
+    "7": "seven",
+    "8": "eight",
+    "9": "nine",
+  };
+  return value.split("").map((digit) => words[digit] ?? digit).join(", ");
+}
+
+function spokenNumber(value: string) {
+  if (/^0\d/.test(value)) return spokenDigits(value);
+  return value;
+}
+
+function spokenValue(value: string, mode: VoiceOverMode) {
+  return mode === "digits" ? spokenDigits(value) : spokenNumber(value);
+}
+
+const spokenNumberWords: Record<string, number> = {
+  zero: 0,
+  oh: 0,
+  o: 0,
+  one: 1,
+  won: 1,
+  two: 2,
+  to: 2,
+  too: 2,
+  three: 3,
+  four: 4,
+  for: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  ate: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fourty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+};
+
+function digitsFromTranscript(transcript: string) {
+  const normalized = transcript.toLowerCase().replace(/[-,]/g, " ").replace(/[^a-z0-9\s]/g, " ");
+  const directDigits = normalized.match(/\d+/g)?.join("") ?? "";
+  if (directDigits) return directDigits;
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const numbers: string[] = [];
+  let pendingTens: number | null = null;
+
+  tokens.forEach((token) => {
+    const value = spokenNumberWords[token];
+    if (typeof value !== "number") return;
+
+    if (value >= 20 && value < 100 && value % 10 === 0) {
+      if (pendingTens !== null) numbers.push(String(pendingTens));
+      pendingTens = value;
+      return;
+    }
+
+    if (pendingTens !== null && value > 0 && value < 10) {
+      numbers.push(String(pendingTens + value));
+      pendingTens = null;
+      return;
+    }
+
+    if (pendingTens !== null) {
+      numbers.push(String(pendingTens));
+      pendingTens = null;
+    }
+    numbers.push(String(value));
+  });
+
+  if (pendingTens !== null) numbers.push(String(pendingTens));
+  return numbers.join("");
+}
+
+function scorePreferredVoice(voice: Voice) {
+  const name = voice.name.toLowerCase();
+  const identifier = voice.identifier.toLowerCase();
+  const language = voice.language.toLowerCase();
+  const searchable = `${name} ${identifier}`;
+  let score = language.startsWith("en") ? 20 : 0;
+
+  if (/female|woman|samantha|karen|moira|tessa|serena|victoria|allison|ava|susan|zoe|fiona|joanna|kendra|kimberly|salli|amy|emma|olivia|aria|jenny|michelle|natasha|libby/.test(searchable)) {
+    score += 40;
+  }
+  if (/enhanced|premium|natural|neural/.test(searchable) || voice.quality === Speech.VoiceQuality.Enhanced) {
+    score += 12;
+  }
+  if (/male|man|daniel|fred|tom|thomas|aaron|albert|bruce|alex/.test(searchable)) {
+    score -= 30;
+  }
+
+  return score;
+}
+
+function pickPreferredVoice(voices: Voice[]) {
+  const englishVoices = voices.filter((voice) => voice.language.toLowerCase().startsWith("en"));
+  const candidates = englishVoices.length ? englishVoices : voices;
+  return candidates
+    .map((voice) => ({ voice, score: scorePreferredVoice(voice) }))
+    .sort((a, b) => b.score - a.score)[0]?.voice.identifier ?? null;
+}
+
 export default function NumbersGame({ game }: { game: GameConfig }) {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 640;
   const [phase, setPhase] = useState<Phase>("setup");
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [sequence, setSequence] = useState<string[]>([]);
@@ -115,24 +291,117 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_SETTINGS.exerciseSeconds);
   const [countdown, setCountdown] = useState(3);
   const [paused, setPaused] = useState(false);
+  const [numberVisible, setNumberVisible] = useState(true);
   const [recallAnswers, setRecallAnswers] = useState<string[]>([]);
+  const [recallSecondsLeft, setRecallSecondsLeft] = useState(DEFAULT_SETTINGS.recallSeconds);
   const [checked, setChecked] = useState<CheckedAnswer[]>([]);
   const [savedResult, setSavedResult] = useState<StoredGameResult | null>(null);
+  const [preferredVoiceIdentifier, setPreferredVoiceIdentifier] = useState<string | null>(null);
+  const [recallListening, setRecallListening] = useState(false);
+  const [recallSpeechSupported, setRecallSpeechSupported] = useState(false);
+  const [smartIntervalSeconds, setSmartIntervalSeconds] = useState<number | null>(
+    () => smartIntervalFromResults(readLocalGameResultsSnapshot(), game.id)
+  );
   const recallRefs = useRef<(TextInput | null)[]>([]);
+  const switchTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const currentIndexRef = useRef(0);
+  const sequenceLengthRef = useRef(0);
+  const checkAnswersRef = useRef<() => void>(() => {});
+  const autoCheckRef = useRef(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const minValue = clampNumber(Number(settings.min), 0);
   const maxValue = Math.max(minValue, clampNumber(Number(settings.max), 99));
   const visibleSequence = sequence.slice(0, maxSeenIndex + 1);
-  const currentNumber = sequence[currentIndex] ?? "";
+  const currentNumber = numberVisible ? sequence[currentIndex] ?? "" : "";
   const progress = Math.max(0, Math.min(100, ((settings.exerciseSeconds - secondsLeft) / settings.exerciseSeconds) * 100));
   const canStart = maxValue >= minValue && settings.exerciseSeconds > 0 && settings.intervalSeconds > 0;
-  const moveNumber = useCallback((direction: -1 | 1) => {
-    setCurrentIndex((prev) => {
-      const next = Math.min(sequence.length - 1, Math.max(0, prev + direction));
-      setMaxSeenIndex((seen) => Math.max(seen, next));
-      return next;
-    });
+  const recallTimerValue = formatRecallTime(recallSecondsLeft);
+
+  function clearSwitchTimer() {
+    if (!switchTimerRef.current) return;
+    globalThis.clearTimeout(switchTimerRef.current);
+    switchTimerRef.current = null;
+  }
+
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    sequenceLengthRef.current = sequence.length;
   }, [sequence.length]);
+
+  const moveNumber = useCallback((direction: -1 | 1) => {
+    if (switchTimerRef.current) return;
+
+    const current = currentIndexRef.current;
+    const next = Math.min(sequenceLengthRef.current - 1, Math.max(0, current + direction));
+    if (next === current) return;
+
+    setNumberVisible(false);
+    switchTimerRef.current = globalThis.setTimeout(() => {
+      currentIndexRef.current = next;
+      setCurrentIndex(next);
+      setMaxSeenIndex((seen) => Math.max(seen, next));
+      setNumberVisible(true);
+      switchTimerRef.current = null;
+    }, 140);
+  }, []);
+
+  useEffect(() => {
+    if (phase === "memorise" && !paused) return;
+    clearSwitchTimer();
+    setNumberVisible(true);
+  }, [paused, phase]);
+
+  useEffect(() => () => clearSwitchTimer(), []);
+
+  useEffect(() => {
+    setRecallSpeechSupported(Platform.OS === "web" && typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    Speech.getAvailableVoicesAsync()
+      .then((voices) => {
+        if (!alive) return;
+        setPreferredVoiceIdentifier(pickPreferredVoice(voices));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPreferredVoiceIdentifier(null);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    setSmartIntervalSeconds(smartIntervalFromResults(readLocalGameResultsSnapshot(), game.id));
+
+    async function refreshSmartInterval() {
+      const results = await loadGameResults();
+      if (!alive) return;
+      setSmartIntervalSeconds(smartIntervalFromResults(results, game.id));
+    }
+
+    refreshSmartInterval();
+
+    if (typeof window === "undefined" || typeof window.addEventListener !== "function") return () => {
+      alive = false;
+    };
+
+    window.addEventListener("memoro-results-updated", refreshSmartInterval);
+    return () => {
+      alive = false;
+      window.removeEventListener("memoro-results-updated", refreshSmartInterval);
+    };
+  }, [game.id]);
 
   useEffect(() => {
     if (phase !== "memorise" || paused) return;
@@ -185,7 +454,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   }, [moveNumber, paused, phase, sequence.length, settings.intervalSeconds, settings.mode]);
 
   useEffect(() => {
-    if (phase !== "memorise" || paused || typeof window === "undefined") return;
+    if (phase !== "memorise" || paused || settings.mode !== "manual" || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "ArrowLeft") {
@@ -200,7 +469,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [moveNumber, paused, phase, sequence.length]);
+  }, [moveNumber, paused, phase, sequence.length, settings.mode]);
 
   function updateSettings(next: Partial<Settings>) {
     setSettings((prev) => ({ ...prev, ...next }));
@@ -216,6 +485,48 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     updateSettings({ useCustomTime: false, exerciseSeconds: seconds });
   }
 
+  function setRecallTime(seconds: number | "custom") {
+    if (seconds === "custom") {
+      const customSeconds = clampSeconds(Number(settings.customRecallSeconds), settings.recallSeconds);
+      updateSettings({ useCustomRecallTime: true, recallSeconds: customSeconds, customRecallSeconds: String(customSeconds) });
+      return;
+    }
+
+    updateSettings({ useCustomRecallTime: false, recallSeconds: seconds });
+  }
+
+  function setAutoInterval(value: number | "custom") {
+    if (value === "custom") {
+      const customSeconds = clampIntervalSeconds(Number(settings.customIntervalSeconds), settings.intervalSeconds);
+      updateSettings({
+        useCustomInterval: true,
+        intervalSeconds: customSeconds,
+        customIntervalSeconds: String(customSeconds),
+      });
+      return;
+    }
+
+    updateSettings({ useCustomInterval: false, intervalSeconds: value });
+  }
+
+  function setCustomAutoInterval(value: string) {
+    const cleanValue = cleanDecimalInput(value);
+    updateSettings({
+      customIntervalSeconds: cleanValue,
+      intervalSeconds: cleanValue ? clampIntervalSeconds(Number(cleanValue), settings.intervalSeconds) : settings.intervalSeconds,
+      useCustomInterval: true,
+    });
+  }
+
+  function applySmartInterval() {
+    if (smartIntervalSeconds === null) return;
+    updateSettings({
+      useCustomInterval: true,
+      intervalSeconds: smartIntervalSeconds,
+      customIntervalSeconds: String(smartIntervalSeconds),
+    });
+  }
+
   function setCustomExerciseTime(value: string) {
     const cleanValue = value.replace(/\D/g, "");
     updateSettings({
@@ -225,6 +536,23 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     });
   }
 
+  function setCustomRecallTime(value: string) {
+    const cleanValue = value.replace(/\D/g, "");
+    updateSettings({
+      customRecallSeconds: cleanValue,
+      recallSeconds: cleanValue ? clampSeconds(Number(cleanValue), settings.recallSeconds) : settings.recallSeconds,
+      useCustomRecallTime: true,
+    });
+  }
+
+  function addRecallTime(seconds: number) {
+    setRecallSecondsLeft((prev) => clampSeconds(prev + seconds, prev));
+  }
+
+  function stopVoiceOver() {
+    Speech.stop().catch(() => {});
+  }
+
   function startGame() {
     const generatedLength = settings.mode === "auto"
       ? Math.ceil(settings.exerciseSeconds / settings.intervalSeconds) + 2
@@ -232,12 +560,17 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     const nextSequence = Array.from({ length: generatedLength }, () => formatNumber(randomBetween(minValue, maxValue), settings.digits));
 
     setSequence(nextSequence);
+    sequenceLengthRef.current = nextSequence.length;
+    currentIndexRef.current = 0;
     setCurrentIndex(0);
     setMaxSeenIndex(0);
+    clearSwitchTimer();
+    setNumberVisible(true);
     setSecondsLeft(settings.exerciseSeconds);
     setCountdown(3);
     setPaused(false);
     setRecallAnswers([]);
+    setRecallSecondsLeft(settings.recallSeconds);
     setChecked([]);
     setSavedResult(null);
     setPhase("countdown");
@@ -251,11 +584,16 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   function restartGame() {
     setPhase("setup");
     setSequence([]);
+    sequenceLengthRef.current = 0;
+    currentIndexRef.current = 0;
     setCurrentIndex(0);
     setMaxSeenIndex(0);
+    clearSwitchTimer();
+    setNumberVisible(true);
     setSecondsLeft(settings.exerciseSeconds);
     setPaused(false);
     setRecallAnswers([]);
+    setRecallSecondsLeft(settings.recallSeconds);
     setChecked([]);
     setSavedResult(null);
   }
@@ -281,6 +619,64 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     if (key === "Enter") focusRecallInput(index + 1);
   }
 
+  function applySpokenRecall(transcript: string) {
+    const spokenDigitsValue = digitsFromTranscript(transcript);
+    if (!spokenDigitsValue) return;
+
+    setRecallAnswers((prev) => {
+      const next = Array.from({ length: visibleSequence.length }, (_, index) => prev[index] ?? "");
+      let cursor = next.findIndex((answer) => answer.length < settings.digits);
+      if (cursor < 0) cursor = Math.max(0, next.length - 1);
+
+      for (const digit of spokenDigitsValue) {
+        if (cursor >= next.length) break;
+        next[cursor] = `${next[cursor] ?? ""}${digit}`.slice(0, settings.digits);
+        if (next[cursor].length >= settings.digits) cursor += 1;
+      }
+
+      globalThis.setTimeout(() => focusRecallInput(Math.min(cursor, next.length - 1)), 20);
+      return next;
+    });
+  }
+
+  function stopRecallListening() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setRecallListening(false);
+  }
+
+  function startRecallListening() {
+    if (!recallSpeechSupported || typeof window === "undefined") return;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return;
+
+    recognitionRef.current?.stop();
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        if (result?.isFinal) applySpokenRecall(result[0]?.transcript ?? "");
+      }
+    };
+    recognition.onerror = () => setRecallListening(false);
+    recognition.onend = () => setRecallListening(false);
+    recognitionRef.current = recognition;
+    setRecallListening(true);
+    recognition.start();
+  }
+
+  function toggleRecallListening() {
+    if (recallListening) {
+      stopRecallListening();
+      return;
+    }
+    startRecallListening();
+  }
+
   function checkAnswers() {
     const answers = recallAnswers.map((answer) => answer.trim());
     const expected = visibleSequence;
@@ -294,7 +690,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     const digitsShown = expected.reduce((sum, item) => sum + item.length, 0);
     const digitsCorrect = nextChecked.reduce((sum, item) => sum + digitsCorrectFor(item.expected, item.actual), 0);
     const result: StoredGameResult = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      id: createResultId(),
       gameId: game.id,
       gameTitle: game.title,
       createdAt: new Date().toISOString(),
@@ -320,83 +716,214 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     setPhase("result");
   }
 
+  useEffect(() => {
+    checkAnswersRef.current = checkAnswers;
+  });
+
+  useEffect(() => {
+    if (phase !== "recall") {
+      autoCheckRef.current = false;
+      return;
+    }
+
+    autoCheckRef.current = false;
+    setRecallSecondsLeft(settings.recallSeconds);
+
+    const timer = globalThis.setInterval(() => {
+      setRecallSecondsLeft((prev) => {
+        if (prev <= 1) {
+          globalThis.clearInterval(timer);
+          if (!autoCheckRef.current) {
+            autoCheckRef.current = true;
+            globalThis.setTimeout(() => checkAnswersRef.current(), 0);
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => globalThis.clearInterval(timer);
+  }, [phase, settings.recallSeconds]);
+
+  useEffect(() => {
+    if (phase !== "memorise" || paused || !settings.voiceOverEnabled || !numberVisible || !currentNumber) {
+      if (phase !== "memorise" || paused || !settings.voiceOverEnabled) stopVoiceOver();
+      return;
+    }
+
+    let cancelled = false;
+    Speech.stop()
+      .catch(() => {})
+      .finally(() => {
+        if (cancelled) return;
+        Speech.speak(spokenValue(currentNumber, settings.voiceOverMode), {
+          language: "en-US",
+          pitch: 1.08,
+          rate: Platform.OS === "ios" ? 0.5 : Platform.OS === "web" ? 0.9 : 0.82,
+          voice: preferredVoiceIdentifier ?? undefined,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentNumber, numberVisible, paused, phase, preferredVoiceIdentifier, settings.voiceOverEnabled, settings.voiceOverMode]);
+
+  useEffect(() => stopVoiceOver, []);
+
+  useEffect(() => () => stopRecallListening(), []);
+
   const setupPanel = (
-    <View style={s.panel}>
-      <View style={s.panelHeader}>
-        <View>
+    <View style={[s.panel, isMobile && s.panelMobile]}>
+      <View style={[s.panelHeader, isMobile && s.panelHeaderMobile]}>
+        <View style={isMobile && s.panelHeaderCopyMobile}>
           <Text style={s.kicker}>Game Settings</Text>
-          <Text style={s.panelTitle}>Prepare your number run</Text>
+          <Text style={[s.panelTitle, isMobile && s.panelTitleMobile]}>Prepare your number run</Text>
         </View>
-        <View style={s.settingsIcon}>
+        <View style={[s.settingsIcon, isMobile && s.settingsIconMobile]}>
           <Feather name="sliders" size={18} color="#FFFFFF" />
         </View>
       </View>
 
-      <View style={s.settingsGrid}>
-        <View style={s.settingBlockWide}>
+      <View style={[s.settingsGrid, isMobile && s.settingsGridMobile]}>
+        <View style={[s.settingBlockWide, isMobile && s.settingBlockWideMobile]}>
           <Text style={s.fieldLabel}>Mode</Text>
-          <Segmented options={["auto", "manual"] as Mode[]} value={settings.mode} onChange={(mode) => updateSettings({ mode })} />
+          <Segmented compact={isMobile} options={["auto", "manual"] as Mode[]} value={settings.mode} onChange={(mode) => updateSettings({ mode })} />
         </View>
 
         {settings.mode === "auto" && (
-          <View style={s.settingBlock}>
+          <View style={[s.settingBlock, isMobile && s.settingBlockMobile]}>
             <Text style={s.fieldLabel}>Auto interval</Text>
-            <Segmented options={INTERVAL_PRESETS} value={settings.intervalSeconds} onChange={(intervalSeconds) => updateSettings({ intervalSeconds })} />
-            <Text style={s.fieldHint}>Seconds between each number.</Text>
+            <Segmented
+              compact={isMobile}
+              options={[...INTERVAL_PRESETS, "custom"] as (number | "custom")[]}
+              value={settings.useCustomInterval ? "custom" : settings.intervalSeconds}
+              onChange={setAutoInterval}
+            />
+            {settings.useCustomInterval && (
+              <View style={[s.inlineInputRow, isMobile && s.inlineInputRowMobile]}>
+                <TextInput
+                  value={settings.customIntervalSeconds}
+                  onChangeText={setCustomAutoInterval}
+                  keyboardType="decimal-pad"
+                  placeholder="1.5"
+                  placeholderTextColor="#7A7A7A"
+                  style={[s.numberInput, isMobile && s.numberInputMobile]}
+                />
+                <Text style={[s.rangeDivider, isMobile && s.rangeDividerMobile]}>sec / number</Text>
+              </View>
+            )}
+            {smartIntervalSeconds !== null && (
+              <TouchableOpacity style={[s.smartSpeedBtn, isMobile && s.smartSpeedBtnMobile]} onPress={applySmartInterval}>
+                <Feather name="zap" size={13} color="#E85D2A" />
+                <Text style={s.smartSpeedText}>Use smart speed: {smartIntervalSeconds}s</Text>
+              </TouchableOpacity>
+            )}
+            <Text style={s.fieldHint}>
+              Seconds between each number. Smart speed uses your latest manual run minus 0.3s.
+            </Text>
           </View>
         )}
 
-        <View style={s.settingBlock}>
+        <View style={[s.settingBlock, isMobile && s.settingBlockMobile]}>
           <Text style={s.fieldLabel}>Exercise time</Text>
           <Segmented
+            compact={isMobile}
             options={[...TIME_PRESETS, "custom"] as (number | "custom")[]}
             value={settings.useCustomTime ? "custom" : settings.exerciseSeconds}
             onChange={setExerciseTime}
+            labelForOption={formatSecondsLabel}
           />
           {settings.useCustomTime && (
-            <View style={s.inlineInputRow}>
+            <View style={[s.inlineInputRow, isMobile && s.inlineInputRowMobile]}>
               <TextInput
                 value={settings.customExerciseSeconds}
                 onChangeText={setCustomExerciseTime}
                 keyboardType="number-pad"
                 placeholder="90"
                 placeholderTextColor="#7A7A7A"
-                style={s.numberInput}
+                style={[s.numberInput, isMobile && s.numberInputMobile]}
               />
-              <Text style={s.rangeDivider}>seconds</Text>
+              <Text style={[s.rangeDivider, isMobile && s.rangeDividerMobile]}>seconds</Text>
             </View>
           )}
           <Text style={s.fieldHint}>Countdown for the memorisation stage.</Text>
         </View>
 
-        <View style={s.settingBlock}>
+        <View style={[s.settingBlock, isMobile && s.settingBlockMobile]}>
+          <Text style={s.fieldLabel}>Recall time</Text>
+          <Segmented
+            compact={isMobile}
+            options={[...RECALL_TIME_PRESETS, "custom"] as (number | "custom")[]}
+            value={settings.useCustomRecallTime ? "custom" : settings.recallSeconds}
+            onChange={setRecallTime}
+            labelForOption={formatSecondsLabel}
+          />
+          {settings.useCustomRecallTime && (
+            <View style={[s.inlineInputRow, isMobile && s.inlineInputRowMobile]}>
+              <TextInput
+                value={settings.customRecallSeconds}
+                onChangeText={setCustomRecallTime}
+                keyboardType="number-pad"
+                placeholder="300"
+                placeholderTextColor="#7A7A7A"
+                style={[s.numberInput, isMobile && s.numberInputMobile]}
+              />
+              <Text style={[s.rangeDivider, isMobile && s.rangeDividerMobile]}>seconds</Text>
+            </View>
+          )}
+          <Text style={s.fieldHint}>How long you get to type the sequence after memorising.</Text>
+        </View>
+
+        <View style={[s.settingBlock, isMobile && s.settingBlockMobile]}>
+          <Text style={s.fieldLabel}>Voice over</Text>
+          <Segmented
+            compact={isMobile}
+            options={["off", "on"] as ("off" | "on")[]}
+            value={settings.voiceOverEnabled ? "on" : "off"}
+            onChange={(value) => updateSettings({ voiceOverEnabled: value === "on" })}
+          />
+          {settings.voiceOverEnabled && (
+            <Segmented
+              compact={isMobile}
+              options={["digits", "number"] as VoiceOverMode[]}
+              value={settings.voiceOverMode}
+              onChange={(voiceOverMode) => updateSettings({ voiceOverMode })}
+              labelForOption={(value) => value === "digits" ? "7 and 6" : "76"}
+            />
+          )}
+          <Text style={s.fieldHint}>Reads each displayed number aloud during memorisation. Uses the smoothest female voice available.</Text>
+        </View>
+
+        <View style={[s.settingBlock, isMobile && s.settingBlockMobile]}>
           <Text style={s.fieldLabel}>Number display</Text>
-          <Segmented options={[1, 2, 3]} value={settings.digits} onChange={(digits) => updateSettings({ digits })} />
+          <Segmented compact={isMobile} options={[1, 2, 3]} value={settings.digits} onChange={(digits) => updateSettings({ digits })} />
           <Text style={s.fieldHint}>Values are padded to this many digits.</Text>
         </View>
 
-        <View style={s.settingBlock}>
+        <View style={[s.settingBlock, isMobile && s.settingBlockMobile]}>
           <Text style={s.fieldLabel}>Number range</Text>
-          <View style={s.rangeRow}>
+          <View style={[s.rangeRow, isMobile && s.rangeRowMobile]}>
             <TextInput
               value={settings.min}
               onChangeText={(min) => updateSettings({ min })}
               keyboardType="number-pad"
-              style={s.numberInput}
+              style={[s.numberInput, isMobile && s.numberInputMobile]}
             />
-            <Text style={s.rangeDivider}>to</Text>
+            <Text style={[s.rangeDivider, isMobile && s.rangeDividerMobile]}>to</Text>
             <TextInput
               value={settings.max}
               onChangeText={(max) => updateSettings({ max })}
               keyboardType="number-pad"
-              style={s.numberInput}
+              style={[s.numberInput, isMobile && s.numberInputMobile]}
             />
           </View>
           <Text style={s.fieldHint}>{formatNumber(minValue, settings.digits)} to {formatNumber(maxValue, settings.digits)} inclusive.</Text>
         </View>
       </View>
 
-      <TouchableOpacity disabled={!canStart} style={[s.primaryButton, !canStart && s.buttonDisabled]} onPress={startGame}>
+      <TouchableOpacity disabled={!canStart} style={[s.primaryButton, isMobile && s.primaryButtonMobile, !canStart && s.buttonDisabled]} onPress={startGame}>
         <Feather name="play" size={15} color="#FFFFFF" />
         <Text style={s.primaryButtonText}>Start Exercise</Text>
       </TouchableOpacity>
@@ -409,10 +936,10 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setupPanel}
-        <FocusOverlay>
-          <View style={s.countdownPanel}>
+        <FocusOverlay mobile={isMobile}>
+          <View style={[s.countdownPanel, isMobile && s.countdownPanelMobile]}>
             <Text style={s.countdownKicker}>Get ready</Text>
-            <Text style={s.countdownNumber}>{countdown}</Text>
+            <Text style={[s.countdownNumber, isMobile && s.countdownNumberMobile]}>{countdown}</Text>
             <Text style={s.countdownText}>Numbers begin after the countdown.</Text>
           </View>
         </FocusOverlay>
@@ -424,28 +951,28 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setupPanel}
-        <FocusOverlay>
-          <View style={s.playPanel}>
-            <View style={s.playTimerRow}>
+        <FocusOverlay mobile={isMobile}>
+          <View style={[s.playPanel, isMobile && s.playPanelMobile]}>
+            <View style={[s.playTimerRow, isMobile && s.playTimerRowMobile]}>
               <View style={s.progressTrack}>
                 <View style={[s.progressFill, { width: `${progress}%` as any }]} />
               </View>
               <Text style={s.timerText}>{secondsLeft}s</Text>
             </View>
 
-            <View style={s.numberStage}>
+            <View style={[s.numberStage, isMobile && s.numberStageMobile]}>
               {paused ? (
                 <View style={s.pauseCurtain}>
                   <Feather name="pause" size={24} color="#FFFFFF" />
                   <Text style={s.pauseText}>Paused</Text>
                 </View>
               ) : (
-                <Text style={s.numberDisplay}>{currentNumber}</Text>
+                <Text style={[s.numberDisplay, isMobile && s.numberDisplayMobile, !numberVisible && s.numberDisplayHidden]}>{currentNumber}</Text>
               )}
             </View>
 
             {settings.mode === "manual" && (
-              <View style={s.manualControls}>
+              <View style={[s.manualControls, isMobile && s.manualControlsMobile]}>
                 <TouchableOpacity style={s.iconButton} onPress={() => moveNumber(-1)} disabled={paused || currentIndex === 0}>
                   <Feather name="chevron-left" size={22} color="rgba(255,255,255,0.78)" />
                 </TouchableOpacity>
@@ -455,16 +982,16 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
               </View>
             )}
 
-            <View style={s.controlRow}>
-              <TouchableOpacity style={s.secondaryButton} onPress={() => setPaused((next) => !next)}>
+            <View style={[s.controlRow, isMobile && s.controlRowMobile]}>
+              <TouchableOpacity style={[s.secondaryButton, isMobile && s.secondaryButtonMobile]} onPress={() => setPaused((next) => !next)}>
                 <Feather name={paused ? "play" : "pause"} size={14} color="#FFFFFF" />
                 <Text style={s.secondaryButtonText}>{paused ? "Resume" : "Pause"}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.secondaryButton} onPress={restartGame}>
+              <TouchableOpacity style={[s.secondaryButton, isMobile && s.secondaryButtonMobile]} onPress={restartGame}>
                 <Feather name="rotate-ccw" size={14} color="#FFFFFF" />
                 <Text style={s.secondaryButtonText}>Restart</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.secondaryButton, s.endButton]} onPress={finishMemorising}>
+              <TouchableOpacity style={[s.secondaryButton, isMobile && s.secondaryButtonMobile, s.endButton]} onPress={finishMemorising}>
                 <Feather name="flag" size={14} color="#FFFFFF" />
                 <Text style={s.secondaryButtonText}>End Early</Text>
               </TouchableOpacity>
@@ -479,27 +1006,57 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setupPanel}
-        <FocusOverlay>
-          <View style={s.panel}>
-            <View style={s.panelHeader}>
-              <View>
+        <FocusOverlay mobile={isMobile}>
+          <View style={[s.panel, isMobile && s.panelMobile]}>
+            <View style={[s.panelHeader, isMobile && s.panelHeaderMobile]}>
+              <View style={isMobile && s.panelHeaderCopyMobile}>
                 <Text style={s.kicker}>Recall</Text>
-                <Text style={s.panelTitle}>Type the numbers in order</Text>
+                <Text style={[s.panelTitle, isMobile && s.panelTitleMobile]}>Type the numbers in order</Text>
               </View>
-              <View style={s.settingsIcon}>
-                <Feather name="edit-3" size={18} color="#FFFFFF" />
+              <View style={s.recallHeaderActions}>
+                <View style={[s.recallTimerPill, recallSecondsLeft <= 20 && s.recallTimerPillUrgent]}>
+                  <Feather name="clock" size={14} color={recallSecondsLeft <= 20 ? "#FFFFFF" : "#E85D2A"} />
+                  <Text style={[s.recallTimerText, recallSecondsLeft <= 20 && s.recallTimerTextUrgent]}>{recallTimerValue}</Text>
+                </View>
+                <View style={[s.settingsIcon, isMobile && s.settingsIconMobile]}>
+                  <Feather name="edit-3" size={18} color="#FFFFFF" />
+                </View>
               </View>
             </View>
 
-            <View style={s.recallSummary}>
-              <StatTile label="Numbers to recall" value={String(visibleSequence.length)} color="#E85D2A" light />
-              <StatTile label="Digits shown" value={String(visibleSequence.join("").length)} light />
-              <StatTile label="Time used" value={`${settings.exerciseSeconds - secondsLeft}s`} light />
+            <Text style={[s.fieldHint, isMobile && s.fieldHintMobile]}>Recall auto-checks when the timer reaches zero.</Text>
+
+            <View style={[s.recallTimeAdjust, isMobile && s.recallTimeAdjustMobile]}>
+              <TouchableOpacity style={[s.timeAdjustButton, isMobile && s.timeAdjustButtonMobile]} onPress={() => addRecallTime(60)}>
+                <Feather name="plus" size={13} color="#E85D2A" />
+                <Text style={s.timeAdjustText}>1 min</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.timeAdjustButton, isMobile && s.timeAdjustButtonMobile]} onPress={() => addRecallTime(300)}>
+                <Feather name="plus" size={13} color="#E85D2A" />
+                <Text style={s.timeAdjustText}>5 min</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={!recallSpeechSupported}
+                style={[s.timeAdjustButton, isMobile && s.timeAdjustButtonMobile, recallListening && s.micButtonActive, !recallSpeechSupported && s.buttonDisabled]}
+                onPress={toggleRecallListening}
+              >
+                <Feather name={recallListening ? "mic-off" : "mic"} size={13} color={recallListening ? "#FFFFFF" : "#E85D2A"} />
+                <Text style={[s.timeAdjustText, recallListening && s.micButtonTextActive]}>{recallListening ? "Listening" : "Speak"}</Text>
+              </TouchableOpacity>
+            </View>
+            {!recallSpeechSupported && (
+              <Text style={[s.fieldHint, isMobile && s.fieldHintMobile]}>Microphone recall works in supported browsers.</Text>
+            )}
+
+            <View style={[s.recallSummary, isMobile && s.recallSummaryMobile]}>
+              <StatTile label="Numbers to recall" value={String(visibleSequence.length)} color="#E85D2A" light compact={isMobile} />
+              <StatTile label="Digits shown" value={String(visibleSequence.join("").length)} light compact={isMobile} />
+              <StatTile label="Time used" value={`${settings.exerciseSeconds - secondsLeft}s`} light compact={isMobile} />
             </View>
 
-            <View style={s.recallGrid}>
+            <View style={[s.recallGrid, isMobile && s.recallGridMobile]}>
               {visibleSequence.map((_, index) => (
-                <View key={`recall-${index}`} style={s.recallBoxWrap}>
+                <View key={`recall-${index}`} style={[s.recallBoxWrap, isMobile && s.recallBoxWrapMobile]}>
                   <Text style={s.recallBoxIndex}>{index + 1}</Text>
                   <TextInput
                     ref={(node) => {
@@ -518,12 +1075,12 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
               ))}
             </View>
 
-            <View style={s.controlRow}>
-              <TouchableOpacity style={s.secondaryButton} onPress={() => setPhase("memorise")}>
+            <View style={[s.controlRow, isMobile && s.controlRowMobile]}>
+              <TouchableOpacity style={[s.secondaryButton, isMobile && s.secondaryButtonMobile]} onPress={() => setPhase("memorise")}>
                 <Feather name="arrow-left" size={14} color="#FFFFFF" />
                 <Text style={s.secondaryButtonText}>Back</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.primaryButtonInline} onPress={checkAnswers}>
+              <TouchableOpacity style={[s.primaryButtonInline, isMobile && s.primaryButtonInlineMobile]} onPress={checkAnswers}>
                 <Feather name="check" size={15} color="#FFFFFF" />
                 <Text style={s.primaryButtonText}>Check Results</Text>
               </TouchableOpacity>
@@ -537,48 +1094,48 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setupPanel}
-      <FocusOverlay>
-        <View style={s.panel}>
-          <View style={s.panelHeader}>
-            <View>
+      <FocusOverlay mobile={isMobile}>
+        <View style={[s.panel, isMobile && s.panelMobile, isMobile && s.resultPanelMobile]}>
+          <View style={[s.panelHeader, isMobile && s.panelHeaderMobile]}>
+            <View style={isMobile && s.panelHeaderCopyMobile}>
               <Text style={s.kicker}>Results saved</Text>
-              <Text style={s.panelTitle}>You remembered {savedResult?.numbersCorrect ?? 0} of {savedResult?.numbersShown ?? 0}</Text>
+              <Text style={[s.panelTitle, isMobile && s.panelTitleMobile]}>You remembered {savedResult?.numbersCorrect ?? 0} of {savedResult?.numbersShown ?? 0}</Text>
             </View>
-            <View style={s.settingsIcon}>
+            <View style={[s.settingsIcon, isMobile && s.settingsIconMobile]}>
               <Feather name="award" size={18} color="#FFFFFF" />
             </View>
           </View>
 
-          <View style={s.resultStats}>
-            <StatTile label="Accuracy" value={`${savedResult?.accuracy ?? 0}%`} color="#E85D2A" light />
-            <StatTile label="Numbers correct" value={`${savedResult?.numbersCorrect ?? 0}/${savedResult?.numbersShown ?? 0}`} light />
-            <StatTile label="Digits correct" value={`${savedResult?.digitsCorrect ?? 0}/${savedResult?.digitsShown ?? 0}`} light />
-            <StatTile label="Time taken" value={`${savedResult?.timeTakenSeconds ?? 0}s`} light />
+          <View style={[s.resultStats, isMobile && s.resultStatsMobile]}>
+            <StatTile label="Accuracy" value={`${savedResult?.accuracy ?? 0}%`} color="#E85D2A" light compact={isMobile} />
+            <StatTile label="Numbers correct" value={`${savedResult?.numbersCorrect ?? 0}/${savedResult?.numbersShown ?? 0}`} light compact={isMobile} />
+            <StatTile label="Digits correct" value={`${savedResult?.digitsCorrect ?? 0}/${savedResult?.digitsShown ?? 0}`} light compact={isMobile} />
+            <StatTile label="Time taken" value={`${savedResult?.timeTakenSeconds ?? 0}s`} light compact={isMobile} />
           </View>
 
-          <View style={s.answerList}>
+          <View style={[s.answerList, isMobile && s.answerListMobile]}>
             {checked.map((item) => (
-              <View key={item.index} style={[s.answerRow, item.correct ? s.answerRowGood : s.answerRowBad]}>
-                <Text style={s.answerIndex}>#{item.index + 1}</Text>
-                <View style={s.answerCol}>
+              <View key={item.index} style={[s.answerRow, isMobile && s.answerRowMobile, item.correct ? s.answerRowGood : s.answerRowBad]}>
+                <Text style={[s.answerIndex, isMobile && s.answerIndexMobile]}>#{item.index + 1}</Text>
+                <View style={[s.answerCol, isMobile && s.answerColMobile]}>
                   <Text style={s.answerLabel}>Correct</Text>
-                  <Text style={s.answerValue}>{item.expected}</Text>
+                  <Text style={[s.answerValue, isMobile && s.answerValueMobile]}>{item.expected}</Text>
                 </View>
-                <View style={s.answerCol}>
+                <View style={[s.answerCol, isMobile && s.answerColMobile]}>
                   <Text style={s.answerLabel}>Your answer</Text>
-                  <Text style={s.answerValue}>{item.actual || "-"}</Text>
+                  <Text style={[s.answerValue, isMobile && s.answerValueMobile]}>{item.actual || "-"}</Text>
                 </View>
                 <Feather name={item.correct ? "check-circle" : "x-circle"} size={18} color={item.correct ? "#7DECD4" : "#FF8C75"} />
               </View>
             ))}
           </View>
 
-          <View style={s.controlRow}>
-            <TouchableOpacity style={s.secondaryButton} onPress={restartGame}>
+          <View style={[s.controlRow, isMobile && s.controlRowMobile]}>
+            <TouchableOpacity style={[s.secondaryButton, isMobile && s.secondaryButtonMobile]} onPress={restartGame}>
               <Feather name="x" size={14} color="#FFFFFF" />
               <Text style={s.secondaryButtonText}>Finish</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.primaryButtonInline} onPress={startGame}>
+            <TouchableOpacity style={[s.primaryButtonInline, isMobile && s.primaryButtonInlineMobile]} onPress={startGame}>
               <Feather name="refresh-cw" size={15} color="#FFFFFF" />
               <Text style={s.primaryButtonText}>Play Again</Text>
             </TouchableOpacity>

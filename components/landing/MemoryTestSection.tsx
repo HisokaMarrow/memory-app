@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { Image, View, Text, TextInput, TouchableOpacity, useWindowDimensions } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
-import { WORD_INPUT_STYLE } from "../../styles/web";
 import { test as ts } from "./MemoryTestSection.styles";
 
 // ── Word data ─────────────────────────────────────────────────────────────────
@@ -17,6 +17,8 @@ const WORDS_B = [
   "key",    "candle", "wizard", "throne", "fountain",
 ];
 
+const STORY_METHOD_IMAGE = require("../../assets/images/story-method-memory-test.jpg");
+
 function buildWordSet(isFirst: boolean, prev: string[]): string[] {
   if (isFirst) return [...WORDS_A];
   return [...prev.slice(0, 10), ...WORDS_B];
@@ -24,43 +26,91 @@ function buildWordSet(isFirst: boolean, prev: string[]): string[] {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function MemoryTestSection() {
-  type Phase = "show" | "recall" | "result";
+  const { width } = useWindowDimensions();
+  const isMobile = width < 700;
+  type Phase = "countdown" | "show" | "recall" | "result";
   const TOTAL     = 20;
   const SHOW_SECS = 40;
+  const WORD_INTERVAL_MS = (SHOW_SECS / TOTAL) * 1000;
+  const WORD_GAP_MS = 140;
 
   const [started,    setStarted]    = useState(false);
   const [isFirst,    setIsFirst]    = useState(true);
-  const [phase,      setPhase]      = useState<Phase>("show");
+  const [phase,      setPhase]      = useState<Phase>("countdown");
   const [words,      setWords]      = useState<string[]>([]);
   const [wordIdx,    setWordIdx]    = useState(0);
   const [timeLeft,   setTimeLeft]   = useState(SHOW_SECS);
+  const [countdown,  setCountdown]  = useState(3);
+  const [wordVisible, setWordVisible] = useState(true);
   const [inputs,     setInputs]     = useState<string[]>(Array(TOTAL).fill(""));
   const [correctSet, setCorrectSet] = useState<Set<string>>(new Set());
   const [firstScore, setFirstScore] = useState<number | null>(null);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
 
-  // Advance one word every 2 s; move to recall when all shown
   useEffect(() => {
     if (phase !== "show" || !started) return;
     if (wordIdx >= TOTAL) { setPhase("recall"); return; }
-    const t = setTimeout(() => setWordIdx((i) => i + 1), (SHOW_SECS / TOTAL) * 1000);
-    return () => clearTimeout(t);
-  }, [phase, wordIdx, started]);
 
-  // Countdown tick
+    setWordVisible(true);
+    const hideTimer = setTimeout(() => setWordVisible(false), WORD_INTERVAL_MS - WORD_GAP_MS);
+    const advanceTimer = setTimeout(() => {
+      if (wordIdx >= TOTAL - 1) {
+        setPhase("recall");
+        return;
+      }
+      setWordIdx((i) => i + 1);
+      setWordVisible(true);
+    }, WORD_INTERVAL_MS);
+
+    return () => {
+      clearTimeout(hideTimer);
+      clearTimeout(advanceTimer);
+    };
+  }, [WORD_GAP_MS, WORD_INTERVAL_MS, phase, wordIdx, started]);
+
   useEffect(() => {
     if (phase !== "show" || !started || timeLeft <= 0) return;
-    const t = setTimeout(() => setTimeLeft((n) => n - 1), 1000);
+    const t = setTimeout(() => setTimeLeft((n) => {
+      if (n <= 1) {
+        setPhase("recall");
+        return 0;
+      }
+      return n - 1;
+    }), 1000);
     return () => clearTimeout(t);
   }, [phase, timeLeft, started]);
+
+  useEffect(() => {
+    if (phase !== "countdown" || !started) return;
+
+    const t = setTimeout(() => {
+      setCountdown((n) => {
+        if (n <= 1) {
+          setPhase("show");
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+
+    return () => clearTimeout(t);
+  }, [phase, countdown, started]);
+
+  useEffect(() => {
+    if (phase !== "recall") return;
+    setTimeout(() => inputRefs.current[0]?.focus(), 80);
+  }, [phase]);
 
   function start(first: boolean, prev: string[]) {
     const w = buildWordSet(first, prev);
     setWords(w);
     setWordIdx(0);
     setTimeLeft(SHOW_SECS);
+    setCountdown(3);
+    setWordVisible(true);
     setInputs(Array(TOTAL).fill(""));
     setCorrectSet(new Set());
-    setPhase("show");
+    setPhase("countdown");
     setStarted(true);
   }
 
@@ -80,21 +130,20 @@ export default function MemoryTestSection() {
     start(false, words);
   }
 
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
   const filled = inputs.filter((s) => s.trim()).length;
   const score  = correctSet.size;
   const delta  = firstScore !== null ? score - firstScore : 0;
+  const progress = Math.max(0, Math.min(100, ((SHOW_SECS - timeLeft) / SHOW_SECS) * 100));
 
   return (
-    <View nativeID="memory-test" style={ts.section}>
+    <View nativeID="memory-test" style={[ts.section, isMobile && ts.sectionMobile]}>
       <View style={ts.inner}>
 
         {/* ── Section header — always visible ─────────────────────────────── */}
-        <View style={ts.head}>
+        <View style={[ts.head, isMobile && ts.headMobile]}>
           <Text style={ts.eyebrow}>Memory Test</Text>
-          <Text style={ts.h2}>How good is your memory?</Text>
-          <Text style={ts.subText}>
+          <Text style={[ts.h2, isMobile && ts.h2Mobile]}>How good is your memory?</Text>
+          <Text style={[ts.subText, isMobile && ts.subTextMobile]}>
             20 words appear one by one over 40 seconds.{"\n"}
             Memorise as many as you can, then type them all back.{"\n"}
             Get a technique — and try again.
@@ -104,66 +153,106 @@ export default function MemoryTestSection() {
         {/* ── CTA — shown before test starts ──────────────────────────────── */}
         {!started && (
           <TouchableOpacity
-            style={[ts.btn, ts.btnPrimary]}
+            style={[ts.primaryButton, isMobile && ts.primaryButtonMobile]}
             onPress={() => start(isFirst, words)}
           >
-            <Text style={ts.btnPrimaryText}>Test your memory →</Text>
+            <Feather name="play" size={15} color="#FFFFFF" />
+            <Text style={ts.primaryButtonText}>Start Memory Test</Text>
           </TouchableOpacity>
         )}
 
         {/* ── Test card — appears once started ────────────────────────────── */}
         {started && (
-          <View style={ts.card}>
+          <View style={[ts.card, isMobile && ts.cardMobile]}>
+
+            {phase === "countdown" && (
+              <View style={[ts.countdownPanel, isMobile && ts.countdownPanelMobile]}>
+                <Text style={ts.countdownKicker}>Get ready</Text>
+                <Text style={[ts.countdownNumber, isMobile && ts.countdownNumberMobile]}>{countdown}</Text>
+                <Text style={ts.countdownText}>Words begin after the countdown.</Text>
+              </View>
+            )}
 
             {/* SHOW WORDS */}
             {phase === "show" && wordIdx < TOTAL && (
-              <View style={ts.phaseWrap}>
-                <Text style={ts.eyebrowGold}>{wordIdx + 1} / {TOTAL}</Text>
-                <View style={ts.wordTimerTrack}>
-                  <View style={[ts.wordTimerFill, { width: `${(timeLeft / SHOW_SECS) * 100}%` as any }]} />
+              <View style={[ts.playPanel, isMobile && ts.playPanelMobile]}>
+                <View style={ts.playTimerRow}>
+                  <View style={ts.progressTrack}>
+                    <View style={[ts.progressFill, { width: `${progress}%` as any }]} />
+                  </View>
+                  <Text style={ts.timerText}>{timeLeft}s</Text>
                 </View>
-                <Text key={wordIdx} style={ts.wordBig}>{words[wordIdx]}</Text>
-                <Text style={ts.wordCounter}>{timeLeft}s remaining</Text>
+
+                <View style={ts.playTop}>
+                  <View style={ts.statTile}>
+                    <Text style={ts.statValue}>{wordIdx + 1}</Text>
+                    <Text style={ts.statLabel}>Word</Text>
+                  </View>
+                  <View style={ts.statTile}>
+                    <Text style={ts.statValue}>{TOTAL}</Text>
+                    <Text style={ts.statLabel}>Total</Text>
+                  </View>
+                  <View style={ts.statTile}>
+                    <Text style={ts.statValue}>2s</Text>
+                    <Text style={ts.statLabel}>Each</Text>
+                  </View>
+                </View>
+
+                <View style={[ts.wordStage, isMobile && ts.wordStageMobile]}>
+                  <Text key={wordIdx} style={[ts.wordDisplay, isMobile && ts.wordDisplayMobile, !wordVisible && ts.wordDisplayHidden]}>
+                    {words[wordIdx]}
+                  </Text>
+                </View>
+
+                <Text style={ts.wordCounter}>Memorise the word. It will clear before the next one.</Text>
               </View>
             )}
 
             {/* RECALL */}
             {phase === "recall" && (
-              <View style={ts.phaseWrap}>
-                <Text style={ts.eyebrowGold}>Type every word you remember</Text>
-                <Text style={ts.phaseText}>{"One word per box — order doesn't matter"}</Text>
-                <View style={ts.inputGrid}>
+              <View style={[ts.recallPanel, isMobile && ts.recallPanelMobile]}>
+                <View style={[ts.panelHeader, isMobile && ts.panelHeaderMobile]}>
+                  <View style={ts.panelTitleWrap}>
+                    <Text style={ts.kicker}>Recall</Text>
+                    <Text style={[ts.panelTitle, isMobile && ts.panelTitleMobile]}>Type every word you remember</Text>
+                  </View>
+                  <View style={[ts.settingsIcon, isMobile && ts.settingsIconMobile]}>
+                    <Feather name="edit-3" size={18} color="#FFFFFF" />
+                  </View>
+                </View>
+                <Text style={[ts.phaseText, isMobile && ts.phaseTextMobile]}>{"One word per box — order doesn't matter."}</Text>
+                <View style={[ts.inputGrid, isMobile && ts.inputGridMobile]}>
                   {inputs.map((val, i) => (
-                    <input
-                      key={i}
-                      // @ts-ignore — web-only
-                      ref={(el) => { inputRefs.current[i] = el; }}
-                      value={val}
-                      placeholder={String(i + 1)}
-                      // @ts-ignore — web-only
-                      autoFocus={i === 0}
-                      onChange={(e) => {
-                        const next = [...inputs];
-                        next[i] = e.target.value.replace(/[^a-zA-Z]/g, "");
-                        setInputs(next);
-                      }}
-                      // @ts-ignore — web-only
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          if (i < TOTAL - 1) {
-                            inputRefs.current[i + 1]?.focus();
-                          } else {
-                            check();
+                    <View key={i} style={ts.recallBoxWrap}>
+                      <Text style={ts.recallBoxIndex}>{i + 1}</Text>
+                      <TextInput
+                        ref={(el) => { inputRefs.current[i] = el; }}
+                        value={val}
+                        placeholder="word"
+                        placeholderTextColor="rgba(255,255,255,0.24)"
+                        autoFocus={i === 0}
+                        onChangeText={(value) => {
+                          const next = [...inputs];
+                          next[i] = value.replace(/[^a-zA-Z]/g, "");
+                          setInputs(next);
+                        }}
+                        onKeyPress={({ nativeEvent }) => {
+                          if (nativeEvent.key === "Enter") {
+                            if (i < TOTAL - 1) {
+                              inputRefs.current[i + 1]?.focus();
+                            } else {
+                              check();
+                            }
                           }
-                        }
-                      }}
-                      style={WORD_INPUT_STYLE}
-                    />
+                        }}
+                        style={ts.recallBoxInput}
+                      />
+                    </View>
                   ))}
                 </View>
-                <TouchableOpacity style={[ts.btn, ts.btnPrimary]} onPress={check}>
-                  <Text style={ts.btnPrimaryText}>
+                <TouchableOpacity style={[ts.primaryButtonInline, isMobile && ts.primaryButtonInlineMobile]} onPress={check}>
+                  <Feather name="check" size={15} color="#FFFFFF" />
+                  <Text style={ts.primaryButtonText}>
                     Check — {filled} {filled === 1 ? "word" : "words"} entered
                   </Text>
                 </TouchableOpacity>
@@ -172,14 +261,14 @@ export default function MemoryTestSection() {
 
             {/* RESULT */}
             {phase === "result" && (
-              <View style={ts.phaseWrap}>
+              <View style={ts.recallPanel}>
 
                 {/* Score */}
                 <View style={ts.scoreRow}>
-                  <Text style={ts.scoreNum}>{score}</Text>
+                  <Text style={[ts.scoreNum, isMobile && ts.scoreNumMobile]}>{score}</Text>
                   <Text style={ts.scoreDenom}> / {TOTAL}</Text>
                 </View>
-                <Text style={ts.phaseTitle}>
+                <Text style={[ts.phaseTitle, isMobile && ts.phaseTitleMobile]}>
                   {score >= 16 ? "Exceptional recall." :
                    score >= 12 ? "Strong memory."      :
                    score >= 8  ? "Good start."          :
@@ -217,7 +306,7 @@ export default function MemoryTestSection() {
                 )}
 
                 {/* Word breakdown — ✓ remembered / ✗ missed */}
-                <View style={ts.wordResultGrid}>
+                <View style={[ts.wordResultGrid, isMobile && ts.wordResultGridMobile]}>
                   {words.map((w) => {
                     const hit = correctSet.has(w.toLowerCase());
                     return (
@@ -242,8 +331,16 @@ export default function MemoryTestSection() {
                         Link each word to the next in one vivid, ridiculous story.{" "}
                         <Text style={ts.emphasisBold}>The more absurd and visual, the stronger it sticks.</Text>
                       </Text>
+                      <View style={[ts.storyImageFrame, isMobile && ts.storyImageFrameMobile]}>
+                        <Image
+                          source={STORY_METHOD_IMAGE}
+                          style={ts.storyImage}
+                          resizeMode="contain"
+                          accessibilityLabel="Illustrated story chain: dragon destroys bridge, bridge debris breaks castle, river flows through castle, sword slashes the river."
+                        />
+                      </View>
                       <Text style={ts.chunkNote}>
-                        {"Example: \""}{words.slice(0, 5).join(" → ")}{"\" — one scene, five words locked in."}
+                        Picture a dragon destroying a bridge, debris crashing into a castle, a river flowing from its gate, and a sword splitting that river in half: one connected scene, five words locked in.
                       </Text>
                     </View>
                     <TouchableOpacity style={[ts.btn, ts.btnPrimary]} onPress={tryAgain}>

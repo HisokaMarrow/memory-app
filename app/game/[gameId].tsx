@@ -8,6 +8,10 @@ import NumbersGame from "../../components/games/numbers/NumbersGame";
 import { GAMES } from "../../data/gamesCatalog";
 import { game as s } from "../../styles/screens/game.styles";
 
+export function generateStaticParams() {
+  return GAMES.map((game) => ({ gameId: game.id }));
+}
+
 export default function GameRoute() {
   const { gameId } = useLocalSearchParams<{ gameId: string }>();
   const game = GAMES.find((item) => item.id === gameId);
@@ -18,6 +22,7 @@ export default function GameRoute() {
       title={game?.title ?? "Game"}
       subtitle={game ? "Set your exercise, memorise the sequence, then recall it in order." : "This game is not available yet."}
       previewEnabled
+      lightHeader
     >
       {game ? (
         <GameExperienceShell game={game} eyebrow="Focused training" phase="Setup · Play · Results" toneColor={game.color}>
@@ -54,4 +59,3 @@ export default function GameRoute() {
     </DashboardShell>
   );
 }
-

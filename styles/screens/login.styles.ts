@@ -25,6 +25,9 @@ export const login = createWebStyles({
     minHeight:     "100vh" as any,
     flexDirection: "column",
   },
+  scrollInnerMobile: {
+    minHeight: "100dvh" as any,
+  },
   main: {
     flex:           1,
     alignItems:     "center",
@@ -33,6 +36,12 @@ export const login = createWebStyles({
     paddingBottom:  SPACE.xl,
     position:       "relative" as any,
     zIndex:         10,
+  },
+  mainMobile: {
+    paddingTop:        94,
+    paddingBottom:     28,
+    paddingHorizontal: 16,
+    justifyContent:    "flex-start",
   },
   card: {
     width:               420,
@@ -46,6 +55,16 @@ export const login = createWebStyles({
     paddingTop:          48,
     paddingBottom:       40,
     boxShadow:           "0 32px 80px rgba(0,0,0,0.60)" as any,
+  },
+  cardMobile: {
+    width:             "100%" as any,
+    maxWidth:          430,
+    borderRadius:      18,
+    paddingHorizontal: 22,
+    paddingTop:        32,
+    paddingBottom:     28,
+    marginTop:         18,
+    boxSizing:         "border-box" as any,
   },
 
   // ── Logo row ────────────────────────────────────────────────────────────────
@@ -137,6 +156,9 @@ export const login = createWebStyles({
     fontFamily:      "DM Sans, system-ui, sans-serif" as any,
     fontSize:        15,
     transition:      "all 0.2s" as any,
+  },
+  inputMobile: {
+    fontSize: 16,
   },
   inputFocused: {
     backgroundColor: "rgba(255,255,255,0.10)",
