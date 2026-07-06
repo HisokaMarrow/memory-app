@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import type { User } from "@supabase/supabase-js";
 
 import DashboardShell from "../components/dashboard/DashboardShell";
+import { getQuestXp, loadUserPreferences } from "../components/games/gamePreferences";
 import { calculateGameStats, clearActiveResultsUser, refreshGameResultsFromSupabase, type StoredGameResult } from "../components/games/resultsStore";
 import { supabase } from "../lib/supabase";
 import { C } from "../styles/tokens";
@@ -25,6 +26,7 @@ function ProfileStat({ label, value, icon }: { label: string; value: string; ico
 export default function ProfileScreen() {
   const [user, setUser] = useState<User | null>(null);
   const [results, setResults] = useState<StoredGameResult[]>([]);
+  const [questXp, setQuestXp] = useState(() => getQuestXp());
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -38,9 +40,10 @@ export default function ProfileScreen() {
   useEffect(() => {
     let alive = true;
     async function refresh() {
-      const [{ data }, nextResults] = await Promise.all([
+      const [{ data }, nextResults, preferences] = await Promise.all([
         supabase.auth.getUser(),
         refreshGameResultsFromSupabase(),
+        loadUserPreferences(),
       ]);
       if (!alive) return;
 
@@ -49,6 +52,7 @@ export default function ProfileScreen() {
       const nextName = metadata.full_name || metadata.name || nextUser?.email?.split("@")[0] || "Athlete";
       setUser(nextUser);
       setResults(nextResults);
+      setQuestXp(preferences.questXp);
       setDisplayName(nextName);
       setEmail(nextUser?.email ?? "");
       setSelectedColor(metadata.avatar_color || C.orange);
@@ -60,7 +64,7 @@ export default function ProfileScreen() {
     };
   }, []);
 
-  const stats = useMemo(() => calculateGameStats(results), [results]);
+  const stats = useMemo(() => calculateGameStats(results, questXp), [questXp, results]);
   const initial = (displayName || user?.email || "A").slice(0, 1).toUpperCase();
 
   function showMessage(text: string, type: "ok" | "bad" = "ok") {

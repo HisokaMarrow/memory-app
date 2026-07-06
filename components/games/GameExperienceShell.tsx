@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { Platform, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { Image, Platform, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
@@ -30,6 +30,13 @@ export default function GameExperienceShell({
     <View style={[s.page, isNativeApp && s.pageApp, isMobile && s.pageMobile]}>
       <View style={[s.heroBand, isMobile && s.heroBandMobile]}>
         <View style={[s.heroCopy, isMobile && s.heroCopyMobile]}>
+          <TouchableOpacity
+            style={[s.backLink, { backgroundColor: toneColor, boxShadow: `0 7px 18px ${toneColor}38` as any }]}
+            onPress={() => router.push("/games" as any)}
+          >
+            <Feather name="arrow-left" size={14} color="#FFFFFF" />
+            <Text style={s.backLinkText}>All games</Text>
+          </TouchableOpacity>
           <View style={s.eyebrowRow}>
             <Text style={[s.eyebrow, useLightHeader && s.eyebrowApp]}>{eyebrow}</Text>
             <View style={[s.phasePill, { borderColor: `${toneColor}55`, backgroundColor: `${toneColor}1F` }]}>
@@ -41,19 +48,19 @@ export default function GameExperienceShell({
         </View>
 
         <View style={[s.heroIcon, isMobile && s.heroIconMobile, { backgroundColor: `${toneColor}24`, borderColor: `${toneColor}42` }]}>
-          <MaterialCommunityIcons name={game.icon} size={isMobile ? 26 : 34} color={useLightHeader ? toneColor : "#FFFFFF"} />
+          {game.artwork ? (
+            <Image source={game.artwork} resizeMode="contain" style={s.heroArtwork} />
+          ) : (
+            <MaterialCommunityIcons name={game.icon} size={isMobile ? 26 : 34} color={useLightHeader ? toneColor : "#FFFFFF"} />
+          )}
         </View>
       </View>
 
       <View style={[s.stage, isNativeApp && s.stageApp, isMobile && s.stageMobile]}>
-        <View style={s.stageGlow} pointerEvents="none" />
+        <View style={[s.stageGlow, { backgroundColor: `${toneColor}1A` }]} pointerEvents="none" />
         {children}
       </View>
 
-      <TouchableOpacity style={[s.backButton, isNativeApp && s.backButtonApp, isMobile && s.backButtonMobile]} onPress={() => router.push("/games" as any)}>
-        <Feather name="arrow-left" size={14} color={isNativeApp ? "#0F7EA8" : "#FFFFFF"} />
-        <Text style={[s.backButtonText, isNativeApp && s.backButtonTextApp]}>Back to games</Text>
-      </TouchableOpacity>
     </View>
   );
 }

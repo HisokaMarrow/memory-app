@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 
 import DashboardShell from "../components/dashboard/DashboardShell";
 import { buildPerformanceTimeline, pointsForResult } from "../components/dashboard/performanceGraphModel";
+import { getQuestXp, loadUserPreferences } from "../components/games/gamePreferences";
 import { calculateGameStats, loadLeaderboard, refreshGameResultsFromSupabase, type LeaderboardEntry, type StoredGameResult } from "../components/games/resultsStore";
 import { C } from "../styles/tokens";
 import { dashboard as s } from "../styles/screens/dashboard.styles";
@@ -36,17 +37,20 @@ function LeaderRow({ row }: { row: LeaderboardEntry }) {
 export default function InsightsScreen() {
   const [results, setResults] = useState<StoredGameResult[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [questXp, setQuestXp] = useState(() => getQuestXp());
 
   useEffect(() => {
     let alive = true;
     async function refresh() {
-      const [nextResults, nextLeaderboard] = await Promise.all([
+      const [nextResults, nextLeaderboard, preferences] = await Promise.all([
         refreshGameResultsFromSupabase(),
         loadLeaderboard(30),
+        loadUserPreferences(),
       ]);
       if (!alive) return;
       setResults(nextResults);
       setLeaderboard(nextLeaderboard);
+      setQuestXp(preferences.questXp);
     }
     refresh();
     return () => {
@@ -54,12 +58,13 @@ export default function InsightsScreen() {
     };
   }, []);
 
-  const stats = useMemo(() => calculateGameStats(results), [results]);
+  const stats = useMemo(() => calculateGameStats(results, questXp), [questXp, results]);
   const week = useMemo(() => buildPerformanceTimeline(results, "week"), [results]);
   const peak = Math.max(1, ...week.map((item) => item.points));
   const accuracyTrend = results.length ? results.slice(0, 7).reverse().map((result) => result.accuracy) : [0, 0, 0, 0, 0, 0, 0];
   const latest = results[0];
-  const ownRow = leaderboard.find((row) => row.you);
+  const ownRemoteRow = leaderboard.find((row) => row.you);
+  const ownRow = ownRemoteRow ? { ...ownRemoteRow, xp: stats.totalXp } : undefined;
   const visibleRows = ownRow
     ? [ownRow, ...leaderboard.filter((row) => !row.you).slice(0, 3)]
     : leaderboard.slice(0, 3);

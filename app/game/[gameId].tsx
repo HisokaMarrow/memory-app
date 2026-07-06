@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 
 import DashboardShell from "../../components/dashboard/DashboardShell";
 import GameExperienceShell from "../../components/games/GameExperienceShell";
-import NumbersGame from "../../components/games/numbers/NumbersGame";
+import { getGameExperience } from "../../components/games/gameRegistry";
 import { GAMES } from "../../data/gamesCatalog";
 import { game as s } from "../../styles/screens/game.styles";
 
@@ -15,19 +15,28 @@ export function generateStaticParams() {
 export default function GameRoute() {
   const { gameId } = useLocalSearchParams<{ gameId: string }>();
   const game = GAMES.find((item) => item.id === gameId);
+  const experience = getGameExperience(game?.id);
+  const GameComponent = experience?.component;
 
   return (
     <DashboardShell
       active="games"
       title={game?.title ?? "Game"}
-      subtitle={game ? "Set your exercise, memorise the sequence, then recall it in order." : "This game is not available yet."}
+      subtitle={experience?.routeSubtitle ?? (game ? `${game.title} is being prepared.` : "This game is not available yet.")}
       previewEnabled
       lightHeader
+      showPageHeader={false}
+      pinFooter
     >
       {game ? (
-        <GameExperienceShell game={game} eyebrow="Focused training" phase="Setup · Play · Results" toneColor={game.color}>
-          {game.id === "numbers-game" ? (
-            <NumbersGame game={game} />
+        <GameExperienceShell
+          game={game}
+          eyebrow={experience?.eyebrow ?? "Focused training"}
+          phase={experience?.phaseLabel ?? "Coming soon"}
+          toneColor={game.color}
+        >
+          {GameComponent ? (
+            <GameComponent game={game} />
           ) : (
             <View style={s.panel}>
               <View style={s.panelHeader}>
@@ -37,7 +46,7 @@ export default function GameRoute() {
                 </View>
               </View>
               <Text style={s.emptyText}>This game will use the same focused training structure after the Numbers Game is complete.</Text>
-              <TouchableOpacity style={s.primaryButtonInline} onPress={() => router.push("/games" as any)}>
+              <TouchableOpacity style={[s.primaryButtonInline, { backgroundColor: game.color }]} onPress={() => router.push("/games" as any)}>
                 <Feather name="arrow-left" size={15} color="#FFFFFF" />
                 <Text style={s.primaryButtonText}>Back to Games</Text>
               </TouchableOpacity>

@@ -15,6 +15,11 @@ export function useFavouriteGames() {
       });
     }
 
+    function refreshFavourites(event: Event) {
+      const nextIds = event instanceof CustomEvent ? event.detail : null;
+      setFavouriteIds(Array.isArray(nextIds) ? nextIds : getFavouriteGameIds());
+    }
+
     refreshPreferences();
 
     if (typeof window === "undefined" || typeof window.addEventListener !== "function") return () => {
@@ -22,9 +27,11 @@ export function useFavouriteGames() {
     };
 
     window.addEventListener("memoro-user-changed", refreshPreferences);
+    window.addEventListener("memoro-favourites-updated", refreshFavourites);
     return () => {
       alive = false;
       window.removeEventListener("memoro-user-changed", refreshPreferences);
+      window.removeEventListener("memoro-favourites-updated", refreshFavourites);
     };
   }, []);
 

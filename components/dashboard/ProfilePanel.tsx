@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "../../lib/supabase";
 import { calculateGameStats, loadGameResults, type StoredGameResult } from "../games/resultsStore";
+import { getQuestXp, loadUserPreferences } from "../games/gamePreferences";
 import { profilePanel as s } from "./ProfilePanel.styles";
 
 type ProfilePanelProps = {
@@ -33,6 +34,7 @@ export default function ProfilePanel({
 }: ProfilePanelProps) {
   const [mounted, setMounted] = useState(visible);
   const [gameResults, setGameResults] = useState<StoredGameResult[]>([]);
+  const [questXp, setQuestXp] = useState(() => getQuestXp());
   const motion = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -59,8 +61,11 @@ export default function ProfilePanel({
     let alive = true;
 
     async function refreshProfileStats() {
-      const results = await loadGameResults();
-      if (alive) setGameResults(results);
+      const [results, preferences] = await Promise.all([loadGameResults(), loadUserPreferences()]);
+      if (alive) {
+        setGameResults(results);
+        setQuestXp(preferences.questXp);
+      }
     }
 
     if (visible) refreshProfileStats();
@@ -71,10 +76,12 @@ export default function ProfilePanel({
 
     window.addEventListener("focus", refreshProfileStats);
     window.addEventListener("memoro-results-updated", refreshProfileStats);
+    window.addEventListener("memoro-quest-xp-updated", refreshProfileStats);
     return () => {
       alive = false;
       window.removeEventListener("focus", refreshProfileStats);
       window.removeEventListener("memoro-results-updated", refreshProfileStats);
+      window.removeEventListener("memoro-quest-xp-updated", refreshProfileStats);
     };
   }, [visible]);
 
@@ -83,7 +90,7 @@ export default function ProfilePanel({
   const initial = (profileName || user?.email || "A").slice(0, 1).toUpperCase();
   const cardScale = motion.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] });
   const statLayout = isMobile ? s.statGridStacked : null;
-  const gameStats = calculateGameStats(gameResults);
+  const gameStats = calculateGameStats(gameResults, questXp);
   const achievements = [
     {
       title: "First Recall",

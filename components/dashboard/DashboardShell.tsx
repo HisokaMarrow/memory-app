@@ -32,6 +32,9 @@ type DashboardShellProps = {
   onActionPress?: () => void;
   previewEnabled?: boolean;
   lightHeader?: boolean;
+  showPageHeader?: boolean;
+  showFooter?: boolean;
+  pinFooter?: boolean;
 };
 
 const PERSIST_KEY = "memoro-shell-state";
@@ -86,6 +89,9 @@ export default function DashboardShell({
   onActionPress,
   previewEnabled = true,
   lightHeader = false,
+  showPageHeader = true,
+  showFooter = true,
+  pinFooter = false,
 }: DashboardShellProps) {
   const { width } = useWindowDimensions();
   const [checkingSession, setCheckingSession] = useState(() => !cachedShellUser);
@@ -334,50 +340,55 @@ export default function DashboardShell({
               isMobile && Platform.OS === "web" && s.contentInnerMobileWeb,
               isNativeApp && s.contentInnerApp,
               isNativeApp && s.contentInnerAppPolished,
+              pinFooter && s.contentInnerFooterPinned,
+              pinFooter && isCompact && s.contentInnerFooterPinnedCompact,
             ]}
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
           >
-            <View style={[s.pageSurface, isNativeApp && s.pageSurfaceApp]}>
+            <View style={[s.pageSurface, isNativeApp && s.pageSurfaceApp, pinFooter && s.pageSurfaceFooterPinned]}>
               <View pointerEvents="none" style={s.dashboardBgLayer}>
                 <Image source={require("../../assets/images/dashboard-background.png")} resizeMode="cover" style={[s.dashboardBg, isNativeApp && s.dashboardBgApp]} />
                 <View style={[s.dashboardBgWash, isNativeApp && s.dashboardBgWashApp]} />
               </View>
               <View style={s.pageSurfaceContent}>
-                <View style={[s.pageHeader, lightHeader && s.pageHeaderLight, isMobile && s.pageHeaderMobile, isNativeApp && s.pageHeaderApp]}>
-                  <View>
-                    <Text style={[s.h1, lightHeader && s.h1Light, isNativeApp && s.h1App]}>{pageTitle}</Text>
-                    <Text style={[s.headerSub, lightHeader && s.headerSubLight, isNativeApp && s.headerSubApp]}>{pageSubtitle}</Text>
-                  </View>
-                  {!isCompact && !isNativeApp ? (
-                    <View style={s.headerRight}>
-                      <View style={s.streakPill}>
-                        <Text style={s.headerEmoji}>🔥</Text>
-                        <Text style={s.streakValue}>{headerStreakDays}</Text>
-                        <Text style={s.streakText}>day streak</Text>
-                      </View>
-                      <TouchableOpacity style={[s.avatar, { backgroundColor: avatarColor }]} onPress={openProfileArea}>
-                        {avatarImageUri ? (
-                          <Image source={{ uri: avatarImageUri }} style={s.avatarImage} resizeMode="cover" />
-                        ) : (
-                          <Text style={s.avatarText}>{initial}</Text>
-                        )}
-                      </TouchableOpacity>
+                {showPageHeader && (
+                  <View style={[s.pageHeader, lightHeader && s.pageHeaderLight, isMobile && s.pageHeaderMobile, isNativeApp && s.pageHeaderApp]}>
+                    <View>
+                      <Text style={[s.h1, lightHeader && s.h1Light, isNativeApp && s.h1App]}>{pageTitle}</Text>
+                      <Text style={[s.headerSub, lightHeader && s.headerSubLight, isNativeApp && s.headerSubApp]}>{pageSubtitle}</Text>
                     </View>
-                  ) : headerAction ? headerAction : actionLabel ? (
-                    <TouchableOpacity style={[s.startBtn, isMobile && s.startBtnMobile, isNativeApp && s.startBtnApp]} onPress={onActionPress}>
-                      <Feather name="play" size={14} color="#FFFFFF" />
-                      <Text style={s.startBtnText}>{actionLabel}</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
+                    {!isCompact && !isNativeApp ? (
+                      <View style={s.headerRight}>
+                        {headerAction}
+                        <View style={s.streakPill}>
+                          <Text style={s.headerEmoji}>🔥</Text>
+                          <Text style={s.streakValue}>{headerStreakDays}</Text>
+                          <Text style={s.streakText}>day streak</Text>
+                        </View>
+                        <TouchableOpacity style={[s.avatar, { backgroundColor: avatarColor }]} onPress={openProfileArea}>
+                          {avatarImageUri ? (
+                            <Image source={{ uri: avatarImageUri }} style={s.avatarImage} resizeMode="cover" />
+                          ) : (
+                            <Text style={s.avatarText}>{initial}</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    ) : headerAction ? headerAction : actionLabel ? (
+                      <TouchableOpacity style={[s.startBtn, isMobile && s.startBtnMobile, isNativeApp && s.startBtnApp]} onPress={onActionPress}>
+                        <Feather name="play" size={14} color="#FFFFFF" />
+                        <Text style={s.startBtnText}>{actionLabel}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                )}
 
                 {pageBody}
               </View>
             </View>
 
-            {!isNativeApp && <DashboardFooter hasBottomNav={false} />}
+            {!isNativeApp && showFooter && <DashboardFooter hasBottomNav={false} />}
           </ScrollView>
         </View>
       </View>

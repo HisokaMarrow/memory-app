@@ -186,12 +186,27 @@ select
   profiles.avatar_color,
   profiles.avatar_image_uri,
   count(game_results.id)::integer as results_count,
-  coalesce(sum(game_results.numbers_correct * 3), 0)::integer as xp,
+  (
+    coalesce(sum(game_results.numbers_correct * 3), 0) +
+    case
+      when jsonb_typeof(user_preferences.goals) = 'object'
+      then coalesce((user_preferences.goals ->> 'questXp')::integer, 0)
+      else 0
+    end
+  )::integer as xp,
   dense_rank() over (
-    order by coalesce(sum(game_results.numbers_correct * 3), 0) desc, profiles.created_at asc
+    order by (
+      coalesce(sum(game_results.numbers_correct * 3), 0) +
+      case
+        when jsonb_typeof(user_preferences.goals) = 'object'
+        then coalesce((user_preferences.goals ->> 'questXp')::integer, 0)
+        else 0
+      end
+    ) desc, profiles.created_at asc
   )::integer as rank
 from public.profiles
 left join public.game_results on game_results.user_id = profiles.id
-group by profiles.id, profiles.display_name, profiles.avatar_color, profiles.avatar_image_uri, profiles.created_at;
+left join public.user_preferences on user_preferences.user_id = profiles.id
+group by profiles.id, profiles.display_name, profiles.avatar_color, profiles.avatar_image_uri, profiles.created_at, user_preferences.goals;
 
 grant select on public.leaderboard_xp to authenticated;
