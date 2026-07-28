@@ -16,6 +16,12 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+   If your phone cannot reach the local dev server, start Expo through a tunnel:
+
+   ```bash
+   npm run start:tunnel
+   ```
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

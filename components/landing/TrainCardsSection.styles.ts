@@ -1,0 +1,145 @@
+import { createWebStyles } from "../../styles/web";
+import { INNER_W, P } from "../../styles/tokens";
+
+// ── TRAIN CARDS ───────────────────────────────────────────────────────────────
+export const train = createWebStyles({
+  section: {
+    paddingVertical:   100,
+    paddingHorizontal: 56,
+    backgroundColor:   P.cream,
+  },
+  sectionMobile: {
+    paddingVertical:   64,
+    paddingHorizontal: 20,
+  },
+  inner: INNER_W as any,
+  head:  { marginBottom: 60 },
+  headMobile: { marginBottom: 34 },
+  eyebrow: {
+    fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:      13,
+    fontWeight:    "500" as const,
+    letterSpacing: 1.5,
+    textTransform: "uppercase" as any,
+    color:         P.amber,
+    marginBottom:  14,
+  },
+  h2: {
+    fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:      50,
+    fontWeight:    "600" as const,
+    color:         P.green,
+    letterSpacing: 0,
+    lineHeight:    56,
+  },
+  h2Mobile: {
+    fontSize:   38,
+    lineHeight: 42,
+  },
+  grid: {
+    display:             "grid" as any,
+    gridTemplateColumns: "repeat(4, 1fr)" as any,
+    gap:                 18,
+  },
+  gridTablet: {
+    gridTemplateColumns: "repeat(2, 1fr)" as any,
+  },
+  gridMobile: {
+    gridTemplateColumns: "1fr" as any,
+    gap:                 14,
+  },
+  card: {
+    backgroundColor: P.pureWhite,
+    borderRadius:    20,
+    padding:         30,
+    borderWidth:     1,
+    borderColor:     P.greenLight,
+    cursor:          "pointer" as any,
+    position:        "relative",
+    transition:      "transform 0.25s, box-shadow 0.25s" as any,
+  },
+  cardMobile: {
+    padding: 22,
+  },
+  cardHover: {
+    transform: "translateY(-6px)" as any,
+    boxShadow: "0 20px 48px rgba(0,0,0,0.12)" as any,
+  },
+  cardBadge: {
+    position:          "absolute",
+    top:               14,
+    right:             14,
+    backgroundColor:   P.goldLight,
+    borderWidth:       1,
+    borderColor:       "rgba(232,93,42,0.25)",
+    borderRadius:      999,
+    paddingHorizontal: 10,
+    paddingVertical:   3,
+  },
+  cardBadgeText: {
+    fontFamily: "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:   12,
+    fontWeight: "500" as const,
+    color:      P.gold,
+  },
+  cardIcon: {
+    width:           46,
+    height:          46,
+    borderRadius:    13,
+    backgroundColor: "#FEF0EB",
+    alignItems:      "center",
+    justifyContent:  "center",
+    marginBottom:    18,
+  },
+  cardIconMobile: {
+    width:        42,
+    height:       42,
+    borderRadius: 10,
+    marginBottom: 14,
+  },
+  cardIconText:  { fontSize: 22 },
+  cardTitle: {
+    fontFamily:   "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:     26,
+    fontWeight:   "600" as const,
+    color:        P.green,
+    marginBottom: 8,
+  },
+  cardDesc: {
+    fontFamily:   "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:     14,
+    color:        P.textMid,
+    lineHeight:   22,
+    marginBottom: 22,
+  },
+  cardDivider: {
+    borderTopWidth: 1,
+    borderTopColor: P.greenLight,
+    paddingTop:     18,
+  },
+  cardExLabel: {
+    fontFamily:    "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:      12,
+    letterSpacing: 0.8,
+    textTransform: "uppercase" as any,
+    color:         P.textLight,
+    marginBottom:  9,
+  },
+  cardEx: {
+    flexDirection: "row",
+    alignItems:    "center",
+    gap:           8,
+    marginBottom:  5,
+  },
+  cardExDot: {
+    width:           4,
+    height:          4,
+    borderRadius:    999,
+    backgroundColor: P.amber,
+  },
+  cardExText: {
+    fontFamily: "Cormorant Garamond, Georgia, serif" as any,
+    fontSize:   14,
+    color:      P.textMid,
+  },
+});
