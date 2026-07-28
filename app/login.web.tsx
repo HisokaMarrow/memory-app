@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { supabase } from "../lib/supabase";
 import FooterSection from "../components/layout/FooterSection";
 import NavBar from "../components/layout/NavBar";
+import { cacheDashboardUser } from "../components/dashboard/dashboardSession";
 import { setActiveResultsUser } from "../components/games/resultsStore";
 import { layout } from "../styles/layout";
 import { login } from "../styles/screens/login.styles";
@@ -17,7 +18,6 @@ export default function LoginPage() {
   const [mode,      setMode]      = useState<"signin" | "signup">("signin");
   const [focused,   setFocused]   = useState<string | null>(null);
   const [error,     setError]     = useState("");
-  const [checkingSession, setCheckingSession] = useState(true);
   const isMobile = width < 640;
 
   const passwordRef = useRef<TextInput>(null);
@@ -33,18 +33,18 @@ export default function LoginPage() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!alive) return;
       if (session?.user) {
+        cacheDashboardUser(session.user);
         setActiveResultsUser(session.user.id);
         router.replace("/dashboard");
       }
-      else setCheckingSession(false);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        cacheDashboardUser(session.user);
         setActiveResultsUser(session.user.id);
         router.replace("/dashboard");
       }
-      else setCheckingSession(false);
     });
 
     return () => {
@@ -66,7 +66,10 @@ export default function LoginPage() {
         const { data, error: err } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (err) setError(err.message);
         else {
-          if (data.user) setActiveResultsUser(data.user.id);
+          if (data.user) {
+            cacheDashboardUser(data.user);
+            setActiveResultsUser(data.user.id);
+          }
           router.replace("/dashboard");
         }
       } else {
@@ -79,6 +82,7 @@ export default function LoginPage() {
         });
         if (err) setError(err.message);
         else if (data.session?.user) {
+          cacheDashboardUser(data.session.user);
           setActiveResultsUser(data.session.user.id);
           router.replace("/dashboard");
         }
@@ -130,14 +134,6 @@ export default function LoginPage() {
   }
 
   const isSuccess = error.startsWith("Check");
-
-  if (checkingSession) {
-    return (
-      <View style={login.root}>
-        <ActivityIndicator color="#FFFFFF" />
-      </View>
-    );
-  }
 
   return (
     <View style={login.root}>

@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
 import GameFocusOverlay from "../GameFocusOverlay";
+import GameResultStat from "../GameResultStat";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, randomInt, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
 type ArithmeticKind =
@@ -32,10 +34,6 @@ const LEVEL_MAX: Record<Level, number> = {
   focused: 50,
   challenge: 100,
 };
-
-function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
 
 function makeQuestion(kind: ArithmeticKind, level: Level) {
   const max = LEVEL_MAX[level];
@@ -60,25 +58,6 @@ function makeQuestion(kind: ArithmeticKind, level: Level) {
   return { prompt: `${a} + ${b}`, answer: a + b };
 }
 
-function ResultStat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-}) {
-  return (
-    <View style={[s.statTile, s.statTileLight]}>
-      <Text style={[s.statValue, s.statValueLight, color ? { color } : null]}>
-        {value}
-      </Text>
-      <Text style={[s.statLabel, s.statLabelLight]}>{label}</Text>
-    </View>
-  );
-}
-
 export default function ArithmeticGame({
   game,
   kind,
@@ -86,8 +65,7 @@ export default function ArithmeticGame({
   game: GameConfig;
   kind: ArithmeticKind;
 }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [level, setLevel] = useState<Level>("focused");
   const [duration, setDuration] = useState(60);
@@ -115,11 +93,9 @@ export default function ArithmeticGame({
     const accuracy = stats.attempted
       ? Math.round((stats.correct / stats.attempted) * 100)
       : 0;
-    const result: StoredGameResult = {
-      id: `${game.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode: "auto",
       exerciseSeconds: duration,
       timeTakenSeconds: Math.max(
@@ -142,7 +118,7 @@ export default function ArithmeticGame({
         operation: kind,
         attemptHistory: JSON.stringify(attemptHistoryRef.current),
       },
-    };
+    });
     setSavedResult(result);
     saveGameResult(result);
     setPhase("result");
@@ -363,20 +339,20 @@ export default function ArithmeticGame({
             {savedResult?.numbersCorrect ?? 0} correct answers
           </Text>
           <View style={[s.resultStats, isMobile && s.resultStatsMobile]}>
-            <ResultStat
+            <GameResultStat
               label="Accuracy"
               value={`${savedResult?.accuracy ?? 0}%`}
               color={game.color}
             />
-            <ResultStat
+            <GameResultStat
               label="Correct"
               value={String(savedResult?.numbersCorrect ?? 0)}
             />
-            <ResultStat
+            <GameResultStat
               label="Answered"
               value={String(savedResult?.numbersShown ?? 0)}
             />
-            <ResultStat
+            <GameResultStat
               label="Time taken"
               value={`${savedResult?.timeTakenSeconds ?? 0}s`}
             />

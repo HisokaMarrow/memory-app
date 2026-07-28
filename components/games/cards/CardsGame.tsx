@@ -4,7 +4,6 @@ import {
   ScrollView,
   Text,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -13,10 +12,12 @@ import { router } from "expo-router";
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
 import GameFocusOverlay from "../GameFocusOverlay";
+import GameResultStat from "../GameResultStat";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, formatTime, shuffle, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 import { PLAYING_CARD_BY_ID, PLAYING_CARDS } from "./cardAssets";
 
@@ -30,15 +31,6 @@ type CheckedCard = {
   correct: boolean;
 };
 
-function shuffle<T>(values: T[]) {
-  const next = [...values];
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
-  }
-  return next;
-}
-
 function buildDeck(deckCount: number) {
   return shuffle(
     Array.from({ length: deckCount }, (_, deckIndex) =>
@@ -51,34 +43,8 @@ function buildDeck(deckCount: number) {
   );
 }
 
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function ResultStat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-}) {
-  return (
-    <View style={[s.statTile, s.statTileLight]}>
-      <Text style={[s.statValue, s.statValueLight, color ? { color } : null]}>
-        {value}
-      </Text>
-      <Text style={[s.statLabel, s.statLabelLight]}>{label}</Text>
-    </View>
-  );
-}
-
 export default function CardsGame({ game }: { game: GameConfig }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [mode, setMode] = useState<Mode>("auto");
   const [deckCount, setDeckCount] = useState(1);
@@ -151,11 +117,9 @@ export default function CardsGame({ game }: { game: GameConfig }) {
     const accuracy = rows.length
       ? Math.round((correct / rows.length) * 100)
       : 0;
-    const result: StoredGameResult = {
-      id: `${game.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode,
       exerciseSeconds: studySeconds + recallSeconds,
       timeTakenSeconds: Math.max(
@@ -181,7 +145,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
         ),
         placements: JSON.stringify(placements),
       },
-    };
+    });
     setChecked(rows);
     setSavedResult(result);
     saveGameResult(result);
@@ -773,17 +737,17 @@ export default function CardsGame({ game }: { game: GameConfig }) {
             {savedResult?.numbersShown ?? 0} cards correctly
           </Text>
           <View style={[s.resultStats, isMobile && s.resultStatsMobile]}>
-            <ResultStat
+            <GameResultStat
               label="Accuracy"
               value={`${savedResult?.accuracy ?? 0}%`}
               color={game.color}
             />
-            <ResultStat
+            <GameResultStat
               label="Cards correct"
               value={`${savedResult?.numbersCorrect ?? 0}/${savedResult?.numbersShown ?? 0}`}
             />
-            <ResultStat label="Decks" value={String(deckCount)} />
-            <ResultStat
+            <GameResultStat label="Decks" value={String(deckCount)} />
+            <GameResultStat
               label="Time taken"
               value={`${savedResult?.timeTakenSeconds ?? 0}s`}
             />

@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -14,10 +13,12 @@ import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import GameFocusOverlay from "../GameFocusOverlay";
+import GameResultStat from "../GameResultStat";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, useIsMobile } from "../gameUtils";
 import { game as s } from "../../../styles/screens/game.styles";
 import {
   loadGameResults,
@@ -76,50 +77,6 @@ declare global {
   }
 }
 
-function StatTile({
-  label,
-  value,
-  color,
-  light = false,
-  compact = false,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-  light?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <View
-      style={[
-        s.statTile,
-        light && s.statTileLight,
-        compact && s.statTileMobile,
-      ]}
-    >
-      <Text
-        style={[
-          s.statValue,
-          light && s.statValueLight,
-          compact && s.statValueMobile,
-          color && { color },
-        ]}
-      >
-        {value}
-      </Text>
-      <Text
-        style={[
-          s.statLabel,
-          light && s.statLabelLight,
-          compact && s.statLabelMobile,
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function smartIntervalFromResults(results: StoredGameResult[], gameId: string) {
   const latestManual = results
     .filter(
@@ -138,13 +95,6 @@ function smartIntervalFromResults(results: StoredGameResult[], gameId: string) {
   return clampIntervalSeconds(
     averageSwitchSeconds - 0.3,
     DEFAULT_SETTINGS.intervalSeconds,
-  );
-}
-
-function createResultId() {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `${Date.now()}-${Math.random().toString(16).slice(2)}`
   );
 }
 
@@ -308,8 +258,7 @@ function pickPreferredVoice(voices: Voice[]) {
 }
 
 export default function NumbersGame({ game }: { game: GameConfig }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [sequence, setSequence] = useState<string[]>([]);
@@ -826,11 +775,9 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
       (sum, item) => sum + digitsCorrectFor(item.expected, item.actual),
       0,
     );
-    const result: StoredGameResult = {
-      id: createResultId(),
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode: settings.mode,
       exerciseSeconds: settings.exerciseSeconds,
       timeTakenSeconds: settings.exerciseSeconds - secondsLeft,
@@ -848,7 +795,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
         intervalSeconds:
           settings.mode === "auto" ? settings.intervalSeconds : undefined,
       },
-    };
+    });
 
     setChecked(nextChecked);
     setSavedResult(result);
@@ -1391,20 +1338,20 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
             ) : null}
 
             <View style={[s.recallSummary, isMobile && s.recallSummaryMobile]}>
-              <StatTile
+              <GameResultStat
                 label="Numbers to recall"
                 value={String(visibleSequence.length)}
                 color={game.color}
                 light
                 compact={isMobile}
               />
-              <StatTile
+              <GameResultStat
                 label="Digits shown"
                 value={String(visibleSequence.join("").length)}
                 light
                 compact={isMobile}
               />
-              <StatTile
+              <GameResultStat
                 label="Time used"
                 value={`${settings.exerciseSeconds - secondsLeft}s`}
                 light
@@ -1476,26 +1423,26 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
           </View>
 
           <View style={[s.resultStats, isMobile && s.resultStatsMobile]}>
-            <StatTile
+            <GameResultStat
               label="Accuracy"
               value={`${savedResult?.accuracy ?? 0}%`}
               color={game.color}
               light
               compact={isMobile}
             />
-            <StatTile
+            <GameResultStat
               label="Numbers correct"
               value={`${savedResult?.numbersCorrect ?? 0}/${savedResult?.numbersShown ?? 0}`}
               light
               compact={isMobile}
             />
-            <StatTile
+            <GameResultStat
               label="Digits correct"
               value={`${savedResult?.digitsCorrect ?? 0}/${savedResult?.digitsShown ?? 0}`}
               light
               compact={isMobile}
             />
-            <StatTile
+            <GameResultStat
               label="Time taken"
               value={`${savedResult?.timeTakenSeconds ?? 0}s`}
               light

@@ -768,7 +768,7 @@ export default function Dashboard() {
         ];
 
         return (
-          <View style={s.contentFadeIn}>
+          <>
             {/* Hero card — greeting, progress pills, Start Training, and rank */}
             <View style={[s.heroCard, isMobile && s.heroCardMobile]}>
               <View style={s.heroLeft}>
@@ -1392,7 +1392,7 @@ export default function Dashboard() {
                 </View>
               </Modal>
             )}
-          </View>
+          </>
         );
       }}
     </DashboardShell>

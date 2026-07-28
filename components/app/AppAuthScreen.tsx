@@ -17,6 +17,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
+import { cacheDashboardUser } from "../dashboard/dashboardSession";
 import { setActiveResultsUser } from "../games/resultsStore";
 import { supabase } from "../../lib/supabase";
 import { C } from "../../styles/tokens";
@@ -39,6 +40,7 @@ export default function AppAuthScreen({ initialMode = "signin" }: { initialMode?
     let alive = true;
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!alive || !session?.user) return;
+      cacheDashboardUser(session.user);
       setActiveResultsUser(session.user.id);
       router.replace("/dashboard");
     });
@@ -59,7 +61,10 @@ export default function AppAuthScreen({ initialMode = "signin" }: { initialMode?
           Alert.alert("Could not sign in", error.message);
           return;
         }
-        if (data.user) setActiveResultsUser(data.user.id);
+        if (data.user) {
+          cacheDashboardUser(data.user);
+          setActiveResultsUser(data.user.id);
+        }
         router.replace("/dashboard");
         return;
       }
@@ -70,6 +75,7 @@ export default function AppAuthScreen({ initialMode = "signin" }: { initialMode?
         return;
       }
       if (data.session?.user) {
+        cacheDashboardUser(data.session.user);
         setActiveResultsUser(data.session.user.id);
         router.replace("/dashboard");
         return;

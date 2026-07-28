@@ -6,14 +6,12 @@ if (Platform.OS === "web") {
 }
 
 export default function RootLayout() {
-  const transitionOptions = Platform.OS === "web" ? {} : { animation: "fade" as const };
-
   return (
     <Stack
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: "#0A0A0A" },
-        ...transitionOptions,
+        animation: "none",
       }}
     />
   );

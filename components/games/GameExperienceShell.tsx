@@ -1,10 +1,11 @@
 import { ReactNode } from "react";
-import { Image, Platform, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { Image, Platform, Text, TouchableOpacity, View } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import type { GameConfig } from "../../data/gamesCatalog";
 import { game as s } from "../../styles/screens/game.styles";
+import { useIsMobile } from "./gameUtils";
 
 type GameExperienceShellProps = {
   children: ReactNode;
@@ -21,10 +22,8 @@ export default function GameExperienceShell({
   phase,
   toneColor,
 }: GameExperienceShellProps) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const isNativeApp = Platform.OS !== "web";
-  const useLightHeader = isNativeApp || Platform.OS === "web";
 
   return (
     <View style={[s.page, isNativeApp && s.pageApp, isMobile && s.pageMobile]}>
@@ -38,20 +37,20 @@ export default function GameExperienceShell({
             <Text style={s.backLinkText}>All games</Text>
           </TouchableOpacity>
           <View style={s.eyebrowRow}>
-            <Text style={[s.eyebrow, useLightHeader && s.eyebrowApp]}>{eyebrow}</Text>
+            <Text style={s.eyebrow}>{eyebrow}</Text>
             <View style={[s.phasePill, { borderColor: `${toneColor}55`, backgroundColor: `${toneColor}1F` }]}>
               <Text style={[s.phaseText, { color: toneColor }]}>{phase}</Text>
             </View>
           </View>
-          <Text style={[s.title, useLightHeader && s.titleApp, isMobile && s.titleMobile]}>{game.title}</Text>
-          <Text style={[s.subtitle, useLightHeader && s.subtitleApp, isMobile && s.subtitleMobile]}>{game.desc}</Text>
+          <Text style={[s.title, isMobile && s.titleMobile]}>{game.title}</Text>
+          <Text style={[s.subtitle, isMobile && s.subtitleMobile]}>{game.desc}</Text>
         </View>
 
         <View style={[s.heroIcon, isMobile && s.heroIconMobile, { backgroundColor: `${toneColor}24`, borderColor: `${toneColor}42` }]}>
           {game.artwork ? (
             <Image source={game.artwork} resizeMode="contain" style={s.heroArtwork} />
           ) : (
-            <MaterialCommunityIcons name={game.icon} size={isMobile ? 26 : 34} color={useLightHeader ? toneColor : "#FFFFFF"} />
+            <MaterialCommunityIcons name={game.icon} size={isMobile ? 26 : 34} color={toneColor} />
           )}
         </View>
       </View>

@@ -41,13 +41,11 @@ const FAVOURITES_KEY = "memoro-favourite-games";
 const GOAL_KEY = "memoro-user-goal";
 const GOALS_KEY = "memoro-user-goals";
 const QUESTS_KEY = "memoro-user-quests";
-const DAILY_PLAN_KEY = "memoro-daily-plan";
 const DAILY_QUEST_SELECTION_KEY = "memoro-daily-quest-selection-history";
 const QUEST_XP_KEY = "memoro-quest-xp";
 const CLAIMED_QUESTS_KEY = "memoro-claimed-quest-ids";
 let activeUserId: string | null = null;
 
-const DAILY_TRAINING_PLAN_CATEGORIES = ["Memory", "Maths", "Words"] as const;
 const DAILY_SKILL_QUEST_CATEGORIES = [
   { category: "Memory", label: "Memory" },
   { category: "Maths", label: "Maths" },
@@ -308,14 +306,6 @@ export function toggleFavouriteGame(gameId: string) {
   return next;
 }
 
-export function getUserGoal(): UserGoal {
-  return getUserGoals()[0] ?? DEFAULT_GOAL;
-}
-
-export function saveUserGoal(goal: UserGoal) {
-  saveUserGoals([goal]);
-}
-
 export function getUserGoals(): UserGoal[] {
   const goals = normalizeGoals(readJson<UserGoal[]>(scopedKey(GOALS_KEY, activeUserId), []));
   if (goals.length > 0) return goals;
@@ -516,49 +506,4 @@ export async function loadUserPreferences() {
   }
 
   return { favouriteGameIds, goals, quests, questXp, claimedQuestIds };
-}
-
-function seededPick(seed: string, games: GameConfig[]) {
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
-  }
-
-  const pool = [...games];
-  const picked: GameConfig[] = [];
-  while (pool.length && picked.length < 3) {
-    hash = (hash * 1664525 + 1013904223) >>> 0;
-    const index = hash % pool.length;
-    picked.push(pool.splice(index, 1)[0]);
-  }
-  return picked;
-}
-
-export function getDailyPlanGames() {
-  const today = todayKey();
-  const saved = readJson<{ date: string; gameIds: string[] } | null>(DAILY_PLAN_KEY, null);
-
-  if (saved?.date === today) {
-    const savedGames = saved.gameIds
-      .map((id) => GAMES.find((game) => game.id === id))
-      .filter((game): game is GameConfig => Boolean(game?.implemented && game.unlocked));
-    const hasDailyTrainingShape = DAILY_TRAINING_PLAN_CATEGORIES.every((category) =>
-      savedGames.some((game) => game.category === category)
-    );
-    if (savedGames.length === 3 && hasDailyTrainingShape) return savedGames;
-  }
-
-  const plan = DAILY_TRAINING_PLAN_CATEGORIES.map((category) => {
-    const directGames = GAMES.filter((game) => game.category === category && game.unlocked && game.implemented && !(category === "Memory" && game.id === "word-game"));
-    const categoryGames = directGames.length
-      ? directGames
-      : category === "Words"
-        ? GAMES.filter((game) => game.id === "word-game" && game.unlocked && game.implemented)
-        : [];
-    const beginnerGames = categoryGames.filter((game) => game.difficulty === "Beginner");
-    return seededPick(`${today}-${category}`, beginnerGames.length ? beginnerGames : categoryGames)[0];
-  }).filter(Boolean) as GameConfig[];
-
-  writeJson(DAILY_PLAN_KEY, { date: today, gameIds: plan.map((game) => game.id) });
-  return plan;
 }

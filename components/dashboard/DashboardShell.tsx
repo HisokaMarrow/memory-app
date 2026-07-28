@@ -10,6 +10,7 @@ import { dashboard as s } from "../../styles/screens/dashboard.styles";
 import DashboardFooter from "./DashboardFooter";
 import DashboardHeader from "./DashboardHeader";
 import DashboardSidebar, { type DashboardNavId } from "./DashboardSidebar";
+import { cacheDashboardUser, clearDashboardUser, getCachedDashboardUser, loadDashboardUser } from "./dashboardSession";
 import ProfilePanel from "./ProfilePanel";
 import SettingsPanel from "./SettingsPanel";
 
@@ -38,9 +39,6 @@ type DashboardShellProps = {
 };
 
 const PERSIST_KEY = "memoro-shell-state";
-let cachedShellUser: User | null = null;
-let pendingShellSessionCheck: Promise<User | null> | null = null;
-let shellSessionVersion = 0;
 
 const MOBILE_NAV_ITEMS = [
   { id: "games", label: "Games", icon: "zap" },
@@ -49,23 +47,6 @@ const MOBILE_NAV_ITEMS = [
   { id: "vault", label: "Vault", icon: "book-open" },
   { id: "profile", label: "Profile", icon: "user" },
 ] as const;
-
-function loadShellSessionUser() {
-  if (!pendingShellSessionCheck) {
-    const checkVersion = shellSessionVersion;
-    pendingShellSessionCheck = supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        if (checkVersion !== shellSessionVersion) return cachedShellUser;
-        cachedShellUser = session?.user ?? null;
-        return cachedShellUser;
-      })
-      .finally(() => {
-        pendingShellSessionCheck = null;
-      });
-  }
-
-  return pendingShellSessionCheck;
-}
 
 function canUseWindowEvents() {
   return typeof window !== "undefined" && typeof window.addEventListener === "function";
@@ -94,8 +75,8 @@ export default function DashboardShell({
   pinFooter = false,
 }: DashboardShellProps) {
   const { width } = useWindowDimensions();
-  const [checkingSession, setCheckingSession] = useState(() => !cachedShellUser);
-  const [user, setUser] = useState<User | null>(() => cachedShellUser);
+  const [checkingSession, setCheckingSession] = useState(() => !getCachedDashboardUser());
+  const [user, setUser] = useState<User | null>(() => getCachedDashboardUser());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [displayNameOverride, setDisplayNameOverride] = useState("");
@@ -126,7 +107,7 @@ export default function DashboardShell({
     const applySessionUser = (nextUser: User | null, redirectIfMissing = false) => {
       if (!alive) return;
       if (signingOutRef.current && nextUser) return;
-      cachedShellUser = nextUser;
+      cacheDashboardUser(nextUser);
       if (!nextUser) {
         clearActiveResultsUser();
         setUser(null);
@@ -140,15 +121,16 @@ export default function DashboardShell({
       setCheckingSession(false);
     };
 
-    if (cachedShellUser) {
-      applySessionUser(cachedShellUser);
+    const cachedUser = getCachedDashboardUser();
+    if (cachedUser) {
+      applySessionUser(cachedUser);
     }
 
-    loadShellSessionUser()
+    loadDashboardUser()
       .then((nextUser) => applySessionUser(nextUser, true))
       .catch(() => {
         if (!alive) return;
-        if (!cachedShellUser) {
+        if (!getCachedDashboardUser()) {
           clearActiveResultsUser();
           setUser(null);
           setCheckingSession(false);
@@ -264,9 +246,7 @@ export default function DashboardShell({
 
   function signOut() {
     signingOutRef.current = true;
-    shellSessionVersion += 1;
-    cachedShellUser = null;
-    pendingShellSessionCheck = null;
+    clearDashboardUser();
     clearActiveResultsUser();
     setSettingsOpen(false);
     setProfileOpen(false);

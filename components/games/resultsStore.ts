@@ -317,17 +317,6 @@ async function upsertRemoteResults(results: StoredGameResult[], authenticatedUse
   return { ok: true, message: "Results synced.", syncedCount: rows.length };
 }
 
-export async function syncLocalGameResults() {
-  await hydrateDeviceResults();
-  const user = await getAuthenticatedUser();
-  if (user) setActiveResultsUser(user.id);
-  const userId = user?.id ?? readActiveResultsUserId();
-  const localResults = readLocalResults(userId);
-  const status = await upsertRemoteResults(localResults, user);
-  notifySyncStatus(status);
-  return status;
-}
-
 export async function saveGameResult(result: StoredGameResult) {
   await hydrateDeviceResults();
   const cachedUserId = readActiveResultsUserId();

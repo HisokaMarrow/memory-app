@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -13,10 +12,12 @@ import { router } from "expo-router";
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
 import GameFocusOverlay from "../GameFocusOverlay";
+import GameResultStat from "../GameResultStat";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, formatTime, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
 type Phase = "setup" | "play" | "result";
@@ -157,23 +158,8 @@ function cleanWords(puzzle: Puzzle) {
   );
 }
 
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
-}
-
-function ResultStat({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <View style={[s.statTile, s.statTileLight]}>
-      <Text style={[s.statValue, s.statValueLight, color ? { color } : null]}>{value}</Text>
-      <Text style={[s.statLabel, s.statLabelLight]}>{label}</Text>
-    </View>
-  );
-}
-
 export default function WordForgeGame({ game }: { game: GameConfig }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [duration, setDuration] = useState(180);
@@ -220,11 +206,9 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
     setPaused(false);
     const accepted = attempts.filter((attempt) => attempt.accepted);
     const accuracy = attempts.length ? Math.round((accepted.length / attempts.length) * 100) : 0;
-    const result: StoredGameResult = {
-      id: `${game.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode: "manual",
       exerciseSeconds: duration,
       timeTakenSeconds: Math.max(1, duration - timeLeft),
@@ -243,7 +227,7 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
         acceptedWords: JSON.stringify(accepted.map((attempt) => attempt.word)),
         attempts: JSON.stringify(attempts),
       },
-    };
+    });
     setSavedResult(result);
     saveGameResult(result);
     setPhase("result");
@@ -488,10 +472,10 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
             </View>
           </View>
           <View style={[s.resultStats, isMobile && s.resultStatsMobile]}>
-            <ResultStat label="Accepted" value={String(accepted.length)} color={game.color} />
-            <ResultStat label="Attempts" value={String(attempts.length)} />
-            <ResultStat label="Accuracy" value={`${savedResult?.accuracy ?? 0}%`} />
-            <ResultStat label="Longest" value={longest} color={game.color} />
+            <GameResultStat label="Accepted" value={String(accepted.length)} color={game.color} />
+            <GameResultStat label="Attempts" value={String(attempts.length)} />
+            <GameResultStat label="Accuracy" value={`${savedResult?.accuracy ?? 0}%`} />
+            <GameResultStat label="Longest" value={longest} color={game.color} />
           </View>
 
           <ScrollView style={s.wordForgeResultsScroll} contentContainerStyle={s.wordForgeResultsContent} nestedScrollEnabled>

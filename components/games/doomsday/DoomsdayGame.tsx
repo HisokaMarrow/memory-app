@@ -3,7 +3,6 @@ import {
   ScrollView,
   Text,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -16,6 +15,7 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, randomInt, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
 type Difficulty =
@@ -62,10 +62,6 @@ const MONTHS = [
   "November",
   "December",
 ];
-
-function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
 
 function isLeapYear(year: number) {
   return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
@@ -127,8 +123,7 @@ function difficultyLabel(value: Difficulty) {
 }
 
 export default function DoomsdayGame({ game }: { game: GameConfig }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [difficulty, setDifficulty] = useState<Difficulty>("current-year");
   const [duration, setDuration] = useState(120);
@@ -153,11 +148,9 @@ export default function DoomsdayGame({ game }: { game: GameConfig }) {
     const accuracy = stats.attempted
       ? Math.round((stats.correct / stats.attempted) * 100)
       : 0;
-    const result: StoredGameResult = {
-      id: `${game.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode: "manual",
       exerciseSeconds: duration,
       timeTakenSeconds: Math.max(
@@ -180,7 +173,7 @@ export default function DoomsdayGame({ game }: { game: GameConfig }) {
         duration,
         attempts: JSON.stringify(attemptsRef.current),
       },
-    };
+    });
     setSavedResult(result);
     saveGameResult(result);
     setMenuOpen(false);

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Text,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -15,13 +14,13 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
 type Phase = "setup" | "waiting" | "ready" | "result";
 
 export default function ReactionSprintGame({ game }: { game: GameConfig }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [rounds, setRounds] = useState(8);
   const [delayMode, setDelayMode] = useState<"steady" | "unpredictable">(
@@ -85,11 +84,9 @@ export default function ReactionSprintGame({ game }: { game: GameConfig }) {
           100,
       ),
     );
-    const result: StoredGameResult = {
-      id: `${game.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode: "manual",
       exerciseSeconds: Math.max(
         1,
@@ -114,7 +111,7 @@ export default function ReactionSprintGame({ game }: { game: GameConfig }) {
         bestMs: best,
         falseStarts: falseStartsRef.current,
       },
-    };
+    });
     setSavedResult(result);
     saveGameResult(result);
     setPhase("result");

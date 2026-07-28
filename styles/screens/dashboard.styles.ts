@@ -411,7 +411,6 @@ export const dashboard = createWebStyles({
   cardTitle: { fontFamily: "DM Sans, system-ui, sans-serif" as any, fontSize: 15, fontWeight: "600" as const, color: black },
   sectionLabel: { fontFamily: "DM Sans, system-ui, sans-serif" as any, fontSize: 11, fontWeight: "700" as const, letterSpacing: 1.2, textTransform: "uppercase" as any, color: muted, marginBottom: 10 },
   sectionLabelApp: { color: "#0F7EA8" },
-  contentFadeIn: {},
   questCountPill: {
     borderWidth: 1,
     borderColor: "rgba(232,93,42,0.22)",

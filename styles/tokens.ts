@@ -87,7 +87,6 @@ export const SHADOW = {
 } as const;
 
 export const MAX_W = 1140;
-export const NAV_H = 68;
 
 export const INNER = {
   maxWidth:          MAX_W,
@@ -112,5 +111,4 @@ export const P = {
   pureWhite:  "#FFFFFF",
 } as const;
 
-export const SECTION_PAD = { paddingVertical: 100, paddingHorizontal: 56 } as const;
 export const INNER_W     = { maxWidth: 1100, marginHorizontal: "auto" as const, width: "100%" as const };

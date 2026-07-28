@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
 import GameFocusOverlay from "../GameFocusOverlay";
+import GameResultStat from "../GameResultStat";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { buildGameResult, shuffle, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
 type Phase = "setup" | "study" | "recall" | "result";
@@ -62,31 +64,11 @@ const WORD_BANK = [
 ];
 
 function shuffledWords(count: number) {
-  return [...WORD_BANK].sort(() => Math.random() - 0.5).slice(0, count);
-}
-
-function ResultStat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-}) {
-  return (
-    <View style={[s.statTile, s.statTileLight]}>
-      <Text style={[s.statValue, s.statValueLight, color ? { color } : null]}>
-        {value}
-      </Text>
-      <Text style={[s.statLabel, s.statLabelLight]}>{label}</Text>
-    </View>
-  );
+  return shuffle(WORD_BANK).slice(0, count);
 }
 
 export default function WordRecallGame({ game }: { game: GameConfig }) {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 640;
+  const isMobile = useIsMobile();
   const [phase, setPhase] = useState<Phase>("setup");
   const [wordCount, setWordCount] = useState(8);
   const [displaySeconds, setDisplaySeconds] = useState(2);
@@ -132,11 +114,9 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
     const accuracy = rows.length
       ? Math.round((correct / rows.length) * 100)
       : 0;
-    const result: StoredGameResult = {
-      id: `${game.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    const result = buildGameResult({
       gameId: game.id,
       gameTitle: game.title,
-      createdAt: new Date().toISOString(),
       mode: "auto",
       exerciseSeconds: wordCount * displaySeconds + recallSeconds,
       timeTakenSeconds: Math.max(
@@ -158,7 +138,7 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
         wordSequence: JSON.stringify(words),
         answers: JSON.stringify(answerOverride),
       },
-    };
+    });
     setChecked(rows);
     setSavedResult(result);
     saveGameResult(result);
@@ -437,17 +417,17 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
             {savedResult?.numbersShown ?? 0}
           </Text>
           <View style={[s.resultStats, isMobile && s.resultStatsMobile]}>
-            <ResultStat
+            <GameResultStat
               label="Accuracy"
               value={`${savedResult?.accuracy ?? 0}%`}
               color={game.color}
             />
-            <ResultStat
+            <GameResultStat
               label="Words correct"
               value={`${savedResult?.numbersCorrect ?? 0}/${savedResult?.numbersShown ?? 0}`}
             />
-            <ResultStat label="Display speed" value={`${displaySeconds}s`} />
-            <ResultStat
+            <GameResultStat label="Display speed" value={`${displaySeconds}s`} />
+            <GameResultStat
               label="Time taken"
               value={`${savedResult?.timeTakenSeconds ?? 0}s`}
             />
