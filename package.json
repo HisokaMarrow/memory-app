@@ -10,8 +10,9 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "test:pao": "tsx scripts/test-pao-regressions.ts",
     "build:web": "expo export --platform web",
-    "check": "npm run lint && npm run typecheck && npm run build:web",
+    "check": "npm run lint && npm run typecheck && npm run test:pao && npm run build:web",
     "serve:web": "node scripts/serve-dist.mjs"
   },
   "dependencies": {
@@ -35,12 +36,13 @@
     "react-native-screens": "~4.16.0",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-web": "~0.21.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "tsx": "^4.23.12",
     "typescript": "~5.9.2"
   },
   "overrides": {

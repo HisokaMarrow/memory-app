@@ -5,6 +5,7 @@ export type RawGrid = (string | number | null)[][];
 export type ColumnRole = "key" | FieldId | "ignore";
 
 export type ImportIssue =
+  | { type: "missing-key-column" }
   | { type: "missing-keys"; keys: string[] }
   | { type: "duplicate-key"; key: string; rows: number[] }
   | { type: "empty-field"; key: string; field: FieldId }
@@ -202,9 +203,9 @@ function makeFields(columns: ImportDetection["columns"]) {
 
 export function applyMapping(grid: RawGrid, mapping: ColumnRole[], startRow: number): ImportDetection {
   const headerRowIndex = startRow > 0 ? startRow - 1 : null;
-  const keyColumn = Math.max(0, mapping.findIndex((role) => role === "key"));
+  const keyColumn = mapping.findIndex((role) => role === "key");
   const rawRows = grid.slice(startRow).map((row, offset) => ({ row, rowNumber: startRow + offset + 1 }));
-  const populatedKeyValues = rawRows.map(({ row }) => cellText(row[keyColumn])).filter(Boolean);
+  const populatedKeyValues = keyColumn >= 0 ? rawRows.map(({ row }) => cellText(row[keyColumn])).filter(Boolean) : [];
   const shape = detectKeyShape(populatedKeyValues);
   const columnCount = Math.max(maxColumnCount(grid, Math.max(0, startRow - 1)), mapping.length);
   const columns = Array.from({ length: columnCount }, (_, index) => ({
@@ -217,6 +218,22 @@ export function applyMapping(grid: RawGrid, mapping: ColumnRole[], startRow: num
   const issues: ImportIssue[] = [];
   const duplicateRows = new Map<string, number[]>();
   const items: PaoItem[] = [];
+
+  if (keyColumn < 0) {
+    issues.push({ type: "missing-key-column" });
+    return {
+      headerRowIndex,
+      firstDataRowIndex: startRow,
+      columns,
+      detectedKind: "custom",
+      keyFormat: "text",
+      expectedSize: 0,
+      fields,
+      items,
+      issues,
+      shiftedOneToHundred: false,
+    };
+  }
 
   rawRows.forEach(({ row, rowNumber }, position) => {
     const rawKey = cellText(row[keyColumn]);
@@ -319,6 +336,7 @@ export function parseTsv(text: string): RawGrid {
 }
 
 export function issueLabel(issue: ImportIssue) {
+  if (issue.type === "missing-key-column") return "Choose one column as the key before saving.";
   if (issue.type === "missing-keys") {
     const preview = issue.keys.slice(0, 8).join(", ");
     return `${issue.keys.length} missing key${issue.keys.length === 1 ? "" : "s"}: ${preview}${issue.keys.length > 8 ? "…" : ""}`;

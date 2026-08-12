@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -35,11 +35,18 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const bundleRef = useRef<PaoSystemBundle | null>(bundle);
+  const draftItemsRef = useRef<Record<string, PaoItem>>({});
+  const dirtyKeysRef = useRef(new Set<string>());
+  const draftVersionsRef = useRef(new Map<string, number>());
+  const saveQueueRef = useRef(new Map<string, { item: PaoItem; version: number }>());
+  const saveLoopRunningRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!user || !systemId) return;
     try {
       const next = await loadPaoSystem(user.id, systemId);
+      bundleRef.current = next;
       setBundle(next);
       setError("");
     } catch (nextError) {
@@ -57,25 +64,65 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
 
   useEffect(() => {
     if (!bundle) return;
-    setDraftItems(Object.fromEntries(bundle.items.map((item) => [item.key, item])));
+    bundleRef.current = bundle;
+    setDraftItems((current) => {
+      const next = Object.fromEntries(bundle.items.map((item) => [
+        item.key,
+        dirtyKeysRef.current.has(item.key) ? current[item.key] ?? item : item,
+      ]));
+      draftItemsRef.current = next;
+      return next;
+    });
     setSelectedKey((current) => current ?? bundle.items[0]?.key ?? null);
   }, [bundle]);
 
   const stats = useMemo(() => bundle ? calculatePaoStats(bundle) : null, [bundle]);
   const selected = bundle?.items.find((item) => item.key === selectedKey) ?? null;
 
-  async function saveItem(item: PaoItem) {
-    if (!bundle || savingKey) return;
-    setSavingKey(item.key);
-    setError("");
+  function stageDraft(item: PaoItem) {
+    const version = (draftVersionsRef.current.get(item.key) ?? 0) + 1;
+    draftVersionsRef.current.set(item.key, version);
+    dirtyKeysRef.current.add(item.key);
+    draftItemsRef.current = { ...draftItemsRef.current, [item.key]: item };
+    setDraftItems(draftItemsRef.current);
+    return version;
+  }
+
+  function saveItem(item: PaoItem) {
+    if (!bundleRef.current) return;
+    const version = stageDraft(item);
+    saveQueueRef.current.set(item.key, { item, version });
+    void drainItemSaves();
+  }
+
+  async function drainItemSaves() {
+    if (saveLoopRunningRef.current) return;
+    saveLoopRunningRef.current = true;
+    let failed = false;
     try {
-      const next = await updatePaoItem(bundle, item);
-      setBundle(next);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? `${nextError.message} Refreshing the latest version…` : "The peg could not be saved.");
-      await refresh();
+      while (saveQueueRef.current.size) {
+        const [key, queued] = saveQueueRef.current.entries().next().value as [string, { item: PaoItem; version: number }];
+        saveQueueRef.current.delete(key);
+        const currentBundle = bundleRef.current;
+        if (!currentBundle) break;
+        setSavingKey(key);
+        setError("");
+        try {
+          const next = await updatePaoItem(currentBundle, queued.item);
+          bundleRef.current = next;
+          if (!saveQueueRef.current.has(key) && draftVersionsRef.current.get(key) === queued.version) dirtyKeysRef.current.delete(key);
+          setBundle(next);
+        } catch (nextError) {
+          failed = true;
+          setError(nextError instanceof Error ? `${nextError.message} Your unsaved draft has been kept.` : "The peg could not be saved. Your draft has been kept.");
+          await refresh();
+          break;
+        }
+      }
     } finally {
+      saveLoopRunningRef.current = false;
       setSavingKey("");
+      if (!failed && saveQueueRef.current.size) void drainItemSaves();
     }
   }
 
@@ -170,7 +217,7 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
                 <View><Text style={s.pegKey}>{selected.displayLabel}</Text><Text style={s.sectionText}>Seen {seenCount(selected, bundle.progress)} times · average {averageMs(selected, bundle.progress)} ms</Text></View>
               </View>
               <View style={s.toolbarGroup}>
-                <TouchableOpacity style={s.secondaryButton} onPress={() => void saveItem({ ...selected, starred: !selected.starred })}><Feather name="star" size={14} color={selected.starred ? "#D39A16" : "#526672"} /><Text style={s.secondaryButtonText}>{selected.starred ? "Starred" : "Star"}</Text></TouchableOpacity>
+                <TouchableOpacity style={s.secondaryButton} onPress={() => { const current = draftItemsRef.current[selected.key] ?? selected; saveItem({ ...current, starred: !current.starred }); }}><Feather name="star" size={14} color={selected.starred ? "#D39A16" : "#526672"} /><Text style={s.secondaryButtonText}>{selected.starred ? "Starred" : "Star"}</Text></TouchableOpacity>
                 <TouchableOpacity style={s.primaryButton} onPress={() => router.push(`/flashcards/${systemId}/train?itemKey=${encodeURIComponent(selected.key)}` as any)}><Feather name="target" size={14} color="#FFFFFF" /><Text style={s.primaryButtonText}>Drill this peg</Text></TouchableOpacity>
               </View>
             </View>
@@ -198,16 +245,19 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
                       style={s.editableInput}
                       value={draft.values[field.id] ?? ""}
                       placeholder={field.label}
-                      onChangeText={(value) => setDraftItems((current) => ({ ...current, [item.key]: { ...draft, values: { ...draft.values, [field.id]: value } } }))}
+                      onChangeText={(value) => {
+                        const current = draftItemsRef.current[item.key] ?? item;
+                        stageDraft({ ...current, values: { ...current.values, [field.id]: value } });
+                      }}
                       onBlur={() => {
-                        const latest = draftItems[item.key];
+                        const latest = draftItemsRef.current[item.key];
                         if (latest && JSON.stringify(latest.values) !== JSON.stringify(item.values)) void saveItem(latest);
                       }}
                     />
                   ) : <View key={field.id} style={s.pegValue}><Text style={s.pegValueLabel}>{field.label}</Text><Text style={s.pegValueText}>{item.values[field.id] || "—"}</Text></View>)}
                 </View>
                 {savingKey === item.key ? <ActivityIndicator color={FLASHCARD_ACCENT} size="small" /> : (
-                  <TouchableOpacity onPress={() => void saveItem({ ...item, starred: !item.starred })}><Feather name="star" size={17} color={item.starred ? "#D39A16" : "#A2ABB1"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => { const current = draftItemsRef.current[item.key] ?? item; saveItem({ ...current, starred: !current.starred }); }}><Feather name="star" size={17} color={item.starred ? "#D39A16" : "#A2ABB1"} /></TouchableOpacity>
                 )}
               </View>
             </View>

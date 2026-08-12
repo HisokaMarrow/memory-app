@@ -2,6 +2,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
 import { supabase } from "../../lib/supabase";
+import {
+  enqueuePendingDelete,
+  enqueuePendingWrite,
+  expectedRevisionForMutation,
+  newestPendingSystems,
+  pendingSystemId,
+  rebasePendingWrite,
+  shouldUsePendingBundle,
+  type PendingDeleteMutation,
+  type PendingMutation,
+  type PendingWriteMutation,
+} from "./paoMutationQueue";
 import type { PaoField, PaoImportRecord, PaoItem, PaoSystem, PaoSystemBundle, PegProgress, SystemKind } from "./paoTypes";
 
 const CACHE_PREFIX = "memoro-pao";
@@ -24,16 +36,6 @@ type CreateSystemInput = {
   file?: ImportFile;
 };
 
-type PendingMutation = {
-  id: string;
-  type: "create" | "replace";
-  userId: string;
-  bundle: PaoSystemBundle;
-  expectedRevision: number;
-  fileName?: string;
-  fileSize?: number;
-};
-
 type PaoSystemRow = {
   id: string;
   name: string;
@@ -47,10 +49,18 @@ type PaoSystemRow = {
 };
 
 const memoryValues = new Map<string, string>();
+let paoNotificationScheduled = false;
 
 function notifyPaoChanged() {
   if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") return;
-  window.dispatchEvent(new Event("memoro-pao-updated"));
+  if (paoNotificationScheduled) return;
+  paoNotificationScheduled = true;
+  const dispatch = () => {
+    paoNotificationScheduled = false;
+    window.dispatchEvent(new Event("memoro-pao-updated"));
+  };
+  if (typeof queueMicrotask === "function") queueMicrotask(dispatch);
+  else setTimeout(dispatch, 0);
 }
 
 function browserStorageAvailable() {
@@ -209,7 +219,6 @@ async function cacheBundle(userId: string, bundle: PaoSystemBundle) {
   const next = [bundle.system, ...systems.filter((system) => system.id !== bundle.system.id)]
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   await cacheSystems(userId, next);
-  notifyPaoChanged();
 }
 
 export function readCachedPaoSystemsSnapshot(userId: string) {
@@ -239,15 +248,19 @@ export async function loadPaoSystems(userId: string): Promise<PaoSystem[]> {
     if (cached.length && isOfflineError(error)) return cached;
     throw new Error(error.message);
   }
-  const pending = (await readPending(userId)).map((entry) => entry.bundle.system);
+  const pendingMutations = await readPending(userId);
+  const pending = newestPendingSystems(pendingMutations);
+  const pendingIds = new Set(pending.map((system) => system.id));
+  const deletedIds = new Set(pendingMutations.filter((entry) => entry.type === "delete").map(pendingSystemId));
   const remote = (data ?? []).map((row) => normalizeSystem(row as PaoSystemRow));
-  const systems = [...pending.filter((system) => !remote.some((row) => row.id === system.id)), ...remote];
+  const systems = [...pending, ...remote.filter((system) => !pendingIds.has(system.id) && !deletedIds.has(system.id))];
   await cacheSystems(userId, systems);
   return systems;
 }
 
-export async function loadPaoSystem(userId: string, systemId: string): Promise<PaoSystemBundle> {
+export async function loadPaoSystem(userId: string, systemId: string, options?: { forceRemote?: boolean }): Promise<PaoSystemBundle> {
   const cached = await readCachedPaoBundle(userId, systemId);
+  if (shouldUsePendingBundle(cached, options?.forceRemote)) return cached!;
   const { data: systemRow, error: systemError } = await supabase.from("pao_systems").select("*").eq("id", systemId).eq("user_id", userId).maybeSingle();
   if (systemError || !systemRow) {
     if (cached && (isOfflineError(systemError) || cached.system.pendingUpload)) return cached;
@@ -282,11 +295,19 @@ async function readPending(userId: string) {
   return parseJson<PendingMutation[]>(await readValue(pendingCacheKey(userId)), []);
 }
 
-async function queuePending(mutation: PendingMutation) {
+async function queuePending(mutation: PendingWriteMutation) {
   const pending = await readPending(mutation.userId);
-  const next = [mutation, ...pending.filter((entry) => entry.id !== mutation.id)];
+  const next = enqueuePendingWrite(pending, mutation);
   await writeValue(pendingCacheKey(mutation.userId), JSON.stringify(next));
   await cacheBundle(mutation.userId, mutation.bundle);
+  notifyPaoChanged();
+}
+
+async function queuePendingDelete(userId: string, systemId: string) {
+  const pending = await readPending(userId);
+  const deletion: PendingDeleteMutation = { id: `delete:${systemId}`, type: "delete", userId, systemId };
+  const next = enqueuePendingDelete(pending, deletion);
+  await writeValue(pendingCacheKey(userId), JSON.stringify(next));
 }
 
 async function callReplace(systemId: string, expectedRevision: number, items: PaoItem[], file?: Pick<ImportFile, "name" | "size">) {
@@ -354,7 +375,9 @@ export async function createPaoSystem(input: CreateSystemInput) {
     if (error) throw error;
     const revision = await callReplace(system.id, 0, items, input.file);
     await uploadOriginal(userId, system.id, revision, input.file);
-    return await loadPaoSystem(userId, system.id);
+    const saved = await loadPaoSystem(userId, system.id, { forceRemote: true });
+    notifyPaoChanged();
+    return saved;
   } catch (error) {
     if (!isOfflineError(error)) throw new Error(errorMessage(error));
     await queuePending({
@@ -376,7 +399,9 @@ export async function replacePaoItems(bundle: PaoSystemBundle, items: PaoItem[],
   try {
     const revision = await callReplace(bundle.system.id, bundle.system.revision, normalizedItems, file);
     await uploadOriginal(userId, bundle.system.id, revision, file);
-    return await loadPaoSystem(userId, bundle.system.id);
+    const saved = await loadPaoSystem(userId, bundle.system.id, { forceRemote: true });
+    notifyPaoChanged();
+    return saved;
   } catch (error) {
     if (!isOfflineError(error)) throw new Error(errorMessage(error));
     const pendingBundle: PaoSystemBundle = {
@@ -408,7 +433,9 @@ export async function updatePaoItem(bundle: PaoSystemBundle, item: PaoItem) {
     p_expected_revision: bundle.system.revision,
   });
   if (error) throw new Error(error.message);
-  return loadPaoSystem(userId, bundle.system.id);
+  const saved = await loadPaoSystem(userId, bundle.system.id, { forceRemote: true });
+  notifyPaoChanged();
+  return saved;
 }
 
 export async function savePaoProgress(entries: PegProgress[]) {
@@ -428,11 +455,19 @@ export async function savePaoProgress(entries: PegProgress[]) {
   }));
   const { error } = await supabase.from("pao_progress").upsert(rows, { onConflict: "user_id,item_id,field" });
   if (error) throw new Error(error.message);
+  notifyPaoChanged();
 }
 
 export async function deletePaoSystem(userId: string, systemId: string) {
   const { error } = await supabase.from("pao_systems").delete().eq("id", systemId).eq("user_id", userId);
-  if (error) throw new Error(error.message);
+  if (error && !isOfflineError(error)) throw new Error(error.message);
+  if (error) {
+    await queuePendingDelete(userId, systemId);
+  } else {
+    const pending = await readPending(userId);
+    const next = pending.filter((entry) => pendingSystemId(entry) !== systemId);
+    await writeValue(pendingCacheKey(userId), next.length ? JSON.stringify(next) : null);
+  }
   await writeValue(bundleCacheKey(userId, systemId), null);
   await cacheSystems(userId, (await readCachedPaoSystems(userId)).filter((system) => system.id !== systemId));
   notifyPaoChanged();
@@ -443,9 +478,20 @@ export async function flushPendingPaoMutations(userId: string) {
   if (!pending.length) return;
   const remaining: PendingMutation[] = [];
   const ordered = [...pending].reverse();
+  const syncedRevisions = new Map<string, number>();
+  let changed = false;
   for (let index = 0; index < ordered.length; index += 1) {
     const mutation = ordered[index];
     try {
+      const systemId = pendingSystemId(mutation);
+      if (mutation.type === "delete") {
+        const { error } = await supabase.from("pao_systems").delete().eq("id", systemId).eq("user_id", userId);
+        if (error) throw error;
+        await writeValue(bundleCacheKey(userId, systemId), null);
+        await cacheSystems(userId, (await readCachedPaoSystems(userId)).filter((system) => system.id !== systemId));
+        changed = true;
+        continue;
+      }
       if (mutation.type === "create") {
         const system = mutation.bundle.system;
         const { error } = await supabase.from("pao_systems").upsert({
@@ -460,13 +506,29 @@ export async function flushPendingPaoMutations(userId: string) {
         }, { onConflict: "id", ignoreDuplicates: true });
         if (error) throw error;
       }
-      await callReplace(mutation.bundle.system.id, mutation.expectedRevision, mutation.bundle.items, mutation.fileName ? { name: mutation.fileName, size: mutation.fileSize ?? 0 } : undefined);
-      await loadPaoSystem(userId, mutation.bundle.system.id);
+      const expectedRevision = expectedRevisionForMutation(mutation, syncedRevisions);
+      const revision = await callReplace(systemId, expectedRevision, mutation.bundle.items, mutation.fileName ? { name: mutation.fileName, size: mutation.fileSize ?? 0 } : undefined);
+      syncedRevisions.set(systemId, revision);
+      await loadPaoSystem(userId, systemId, { forceRemote: true });
+      changed = true;
     } catch (error) {
       if (/revision_conflict/i.test(errorMessage(error))) {
         try {
-          const remote = await loadPaoSystem(userId, mutation.bundle.system.id);
-          if (remote.system.revision > mutation.expectedRevision) continue;
+          const systemId = pendingSystemId(mutation);
+          const { data: remote, error: remoteError } = await supabase
+            .from("pao_systems")
+            .select("revision")
+            .eq("id", systemId)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (remoteError) throw remoteError;
+          if (remote && mutation.type !== "delete") {
+            const revision = Number(remote.revision);
+            const rebased = rebasePendingWrite(mutation, revision);
+            remaining.push(rebased);
+            await cacheBundle(userId, rebased.bundle);
+            continue;
+          }
         } catch {
           // Keep the queued mutation below.
         }
@@ -479,6 +541,7 @@ export async function flushPendingPaoMutations(userId: string) {
     }
   }
   await writeValue(pendingCacheKey(userId), remaining.length ? JSON.stringify([...remaining].reverse()) : null);
+  if (changed) notifyPaoChanged();
 }
 
 export async function clearPaoCache(userId?: string) {

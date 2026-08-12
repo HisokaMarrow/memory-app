@@ -80,7 +80,9 @@ function damerauLevenshtein(a: string, b: string) {
 }
 
 function acceptedAnswers(expected: string) {
-  return expected.split(/[\/,;]/).map(normalizeAnswer).filter(Boolean);
+  const completeAnswer = normalizeAnswer(expected);
+  const alternatives = expected.split(/[\/,;]/).map(normalizeAnswer).filter(Boolean);
+  return Array.from(new Set([completeAnswer, ...alternatives].filter(Boolean)));
 }
 
 export function gradeAnswer(input: string, expected: string): GradeResult {

@@ -46,6 +46,7 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
   const [feedback, setFeedback] = useState<GradeResult[] | null>(null);
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [sessionProgress, setSessionProgress] = useState<PegProgress[]>([]);
+  const [sessionMasteryBefore, setSessionMasteryBefore] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -195,6 +196,7 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     setIndex(0);
     setOutcomes([]);
     setSessionProgress(bundle.progress);
+    setSessionMasteryBefore(calculatePaoStats(bundle).mastery);
     setRevealed(false);
     setAnswers({});
     setFeedback(null);
@@ -212,7 +214,6 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
   const missedKeys = Array.from(new Set(outcomes.filter((outcome) => !outcome.correct).map((outcome) => outcome.card.item.key)));
   const correctCards = outcomes.filter((outcome) => outcome.correct).length;
   const accuracy = outcomes.length ? Math.round((correctCards / outcomes.length) * 100) : 0;
-  const masteryBefore = calculatePaoStats(bundle).mastery;
   const masteryAfter = calculatePaoStats({ ...bundle, progress: sessionProgress }).mastery;
 
   return (
@@ -278,7 +279,7 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
           </View>
         ) : (
           <View style={[s.setupPanel, isMobile && s.setupPanelMobile]}>
-            <View style={s.resultHero}>{saving ? <ActivityIndicator color={FLASHCARD_ACCENT} /> : <Text style={s.resultScore}>{accuracy}%</Text>}<Text style={s.resultTitle}>{correctCards} of {outcomes.length} cards correct</Text><Text style={s.resultText}>Average {outcomes.length ? Math.round(outcomes.reduce((sum, outcome) => sum + outcome.elapsedMs, 0) / outcomes.length / 100) / 10 : 0}s per card · mastery {masteryBefore}% → {masteryAfter}%</Text></View>
+            <View style={s.resultHero}>{saving ? <ActivityIndicator color={FLASHCARD_ACCENT} /> : <Text style={s.resultScore}>{accuracy}%</Text>}<Text style={s.resultTitle}>{correctCards} of {outcomes.length} cards correct</Text><Text style={s.resultText}>Average {outcomes.length ? Math.round(outcomes.reduce((sum, outcome) => sum + outcome.elapsedMs, 0) / outcomes.length / 100) / 10 : 0}s per card · mastery {sessionMasteryBefore}% → {masteryAfter}%</Text></View>
             {missedKeys.length ? <View><Text style={s.fieldLabel}>Pegs to revisit</Text><View style={s.missedList}>{outcomes.filter((outcome) => !outcome.correct).map((outcome) => <View key={`${outcome.card.id}:${outcome.elapsedMs}`} style={s.missedRow}><Text style={s.missedKey}>{outcome.card.item.displayLabel}</Text><Text style={s.missedText}>{outcome.card.targets.map((target) => target.expected).join(" · ")}</Text></View>)}</View></View> : <View style={s.successBanner}><Feather name="award" size={16} color="#23845B" /><Text style={s.successText}>Perfect session — every peg was recalled.</Text></View>}
             <View style={s.actionRow}>{missedKeys.length ? <TouchableOpacity style={s.primaryButton} onPress={() => startSession(missedKeys)}><Feather name="repeat" size={15} color="#FFFFFF" /><Text style={s.primaryButtonText}>Drill these {missedKeys.length} again</Text></TouchableOpacity> : null}<TouchableOpacity style={s.secondaryButton} onPress={() => setPhase("setup")}><Feather name="sliders" size={14} color="#526672" /><Text style={s.secondaryButtonText}>New session</Text></TouchableOpacity><TouchableOpacity style={s.secondaryButton} onPress={() => router.replace(`/flashcards/${systemId}` as any)}><Text style={s.secondaryButtonText}>Back to system</Text></TouchableOpacity></View>
           </View>

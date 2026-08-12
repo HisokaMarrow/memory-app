@@ -63,22 +63,19 @@ export default function FlashcardsImportPanel({
     [detection, systems],
   );
 
-  useEffect(() => {
-    if (!detection) return;
-    const preferred = preferredSystemId && compatibleSystems.some((system) => system.id === preferredSystemId)
-      ? preferredSystemId
-      : compatibleSystems[0]?.id;
-    setTargetSystemId(preferred ?? "new");
-    if (preferred) setSystemName(systems.find((system) => system.id === preferred)?.name ?? "My PAO");
-  }, [compatibleSystems, detection, preferredSystemId, systems]);
-
   function applyGrid(nextGrid: RawGrid, nextSource?: WorkbookSource) {
     if (!nextGrid.length) throw new Error("No table rows were found.");
     const nextDetection = detectImport(nextGrid);
     if (!nextDetection.items.length) throw new Error("No flashcard rows could be detected. Check that column A contains keys.");
+    const nextCompatibleSystems = systems.filter((system) => system.kind === nextDetection.detectedKind);
+    const preferred = preferredSystemId && nextCompatibleSystems.some((system) => system.id === preferredSystemId)
+      ? preferredSystemId
+      : nextCompatibleSystems[0]?.id;
     setGrid(nextGrid);
     setDetection(nextDetection);
     setSource(nextSource);
+    setTargetSystemId(preferred ?? "new");
+    if (preferred) setSystemName(systems.find((system) => system.id === preferred)?.name ?? "My PAO");
     setHiddenIssues(new Set());
     setError("");
   }
@@ -345,7 +342,7 @@ export default function FlashcardsImportPanel({
             <TouchableOpacity style={s.secondaryButton} onPress={() => { setDetection(null); setGrid(null); setSource(undefined); }}>
               <Feather name="arrow-left" size={14} color="#526672" /><Text style={s.secondaryButtonText}>Choose another</Text>
             </TouchableOpacity>
-            <TouchableOpacity disabled={saving || !detection.fields.length} style={[s.primaryButton, (saving || !detection.fields.length) && s.disabled]} onPress={confirmImport}>
+            <TouchableOpacity disabled={saving || !detection.fields.length || !detection.items.length} style={[s.primaryButton, (saving || !detection.fields.length || !detection.items.length) && s.disabled]} onPress={confirmImport}>
               {saving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Feather name="check" size={15} color="#FFFFFF" />}
               <Text style={s.primaryButtonText}>{saving ? "Saving…" : targetSystemId === "new" ? "Create system" : "Replace safely"}</Text>
             </TouchableOpacity>
