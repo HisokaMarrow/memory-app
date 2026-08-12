@@ -4,8 +4,9 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import { dashboard as s } from "../../styles/screens/dashboard.styles";
+import type { DashboardNavId } from "./DashboardSidebar";
 
-type HeaderNavId = "dashboard" | "games" | "insights" | "vault" | "profile";
+type HeaderNavId = DashboardNavId;
 
 type DashboardHeaderProps = {
   active: HeaderNavId;
@@ -23,6 +24,7 @@ type DashboardHeaderProps = {
 const MOBILE_MENU_ITEMS: { id: HeaderNavId; label: string; icon: string; href: string; locked?: boolean }[] = [
   { id: "dashboard", label: "Dashboard", icon: "grid", href: "/dashboard" },
   { id: "games", label: "Games", icon: "zap", href: "/games" },
+  { id: "flashcards", label: "Flashcards", icon: "layers", href: "/flashcards" },
   { id: "insights", label: "Progress", icon: "bar-chart-2", href: "/insights" },
   { id: "vault", label: "Vault", icon: "book-open", href: "/vault", locked: true },
 ];

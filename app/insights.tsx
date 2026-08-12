@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
 import DashboardShell from "../components/dashboard/DashboardShell";
+import { getCachedDashboardUser } from "../components/dashboard/dashboardSession";
+import { loadPaoOverview, type PaoOverview } from "../components/flashcards/paoStore";
 import { buildPerformanceTimeline, pointsForResult } from "../components/dashboard/performanceGraphModel";
 import { getQuestXp, loadUserPreferences } from "../components/games/gamePreferences";
 import { calculateGameStats, loadLeaderboard, refreshGameResultsFromSupabase, type LeaderboardEntry, type StoredGameResult } from "../components/games/resultsStore";
@@ -38,6 +40,7 @@ export default function InsightsScreen() {
   const [results, setResults] = useState<StoredGameResult[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [questXp, setQuestXp] = useState(() => getQuestXp());
+  const [paoOverview, setPaoOverview] = useState<PaoOverview>({ systemCount: 0, pegCount: 0, coverage: 0, mastery: 0, due: 0, trouble: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -55,6 +58,26 @@ export default function InsightsScreen() {
     refresh();
     return () => {
       alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    function refreshPao() {
+      const user = getCachedDashboardUser();
+      if (!user) return;
+      loadPaoOverview(user.id).then((overview) => { if (alive) setPaoOverview(overview); }).catch(() => undefined);
+    }
+    refreshPao();
+    if (typeof window === "undefined") return () => { alive = false; };
+    window.addEventListener("focus", refreshPao);
+    window.addEventListener("memoro-user-changed", refreshPao);
+    window.addEventListener("memoro-pao-updated", refreshPao);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", refreshPao);
+      window.removeEventListener("memoro-user-changed", refreshPao);
+      window.removeEventListener("memoro-pao-updated", refreshPao);
     };
   }, []);
 
@@ -77,6 +100,25 @@ export default function InsightsScreen() {
     >
       {({ isMobile }) => (
         <View style={[s.grid, s.gridCompact, isMobile && s.gridMobile]}>
+          <View style={[s.card, s.darkCard, isMobile && s.cardMobile]}>
+            <View style={app.sectionHeader}>
+              <View>
+                <Text style={app.eyebrow}>Memory systems</Text>
+                <Text style={app.title}>PAO mastery</Text>
+              </View>
+              <Feather name="layers" size={22} color="#8B8BEA" />
+            </View>
+
+            <View style={app.statsGrid}>
+              <StatTile label="Mastery" value={`${paoOverview.mastery}%`} icon="layers" />
+              <StatTile label="Pegs covered" value={`${paoOverview.coverage}/${paoOverview.pegCount || 100}`} icon="check-circle" />
+              <StatTile label="Due now" value={String(paoOverview.due)} icon="clock" />
+            </View>
+            <Text style={app.subLabel}>{paoOverview.systemCount} synced system{paoOverview.systemCount === 1 ? "" : "s"}</Text>
+            <View style={app.paoTrack}><View style={[app.paoFill, { width: `${paoOverview.mastery}%` as any }]} /></View>
+            <Text style={app.paoNote}>{paoOverview.trouble ? `${paoOverview.trouble} trouble peg${paoOverview.trouble === 1 ? "" : "s"} will be prioritised in Smart order.` : "Smart order will bring due and weaker pegs forward automatically."}</Text>
+          </View>
+
           <View style={[s.card, s.darkCard, isMobile && s.cardMobile]}>
             <View style={app.sectionHeader}>
               <View>
@@ -305,4 +347,7 @@ const app = StyleSheet.create({
   emptyPanel: { borderWidth: 1, borderColor: C.borderGreen, backgroundColor: "#202020", borderRadius: 16, padding: 16 },
   emptyTitle: { fontFamily: "DM Sans, system-ui, sans-serif", fontSize: 14, fontWeight: "900", color: C.white },
   emptyText: { marginTop: 4, fontFamily: "DM Sans, system-ui, sans-serif", fontSize: 12, lineHeight: 18, color: C.mutedInverse },
+  paoTrack: { height: 9, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.09)", overflow: "hidden", marginTop: 8 },
+  paoFill: { height: "100%", borderRadius: 999, backgroundColor: "#8B8BEA" },
+  paoNote: { marginTop: 12, fontFamily: "DM Sans, system-ui, sans-serif", fontSize: 12, lineHeight: 18, color: C.mutedInverse },
 });

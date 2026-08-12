@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "../../lib/supabase";
 import { calculateGameStats, clearActiveResultsUser, loadGameResults, setActiveResultsUser } from "../games/resultsStore";
+import { clearPaoCache } from "../flashcards/paoStore";
 import { dashboard as s } from "../../styles/screens/dashboard.styles";
 import DashboardFooter from "./DashboardFooter";
 import DashboardHeader from "./DashboardHeader";
@@ -42,6 +43,7 @@ const PERSIST_KEY = "memoro-shell-state";
 
 const MOBILE_NAV_ITEMS = [
   { id: "games", label: "Games", icon: "zap" },
+  { id: "flashcards", label: "Cards", icon: "layers" },
   { id: "dashboard", label: "Dashboard", icon: "grid" },
   { id: "insights", label: "Progress", icon: "bar-chart-2", center: true },
   { id: "vault", label: "Vault", icon: "book-open" },
@@ -55,6 +57,7 @@ function canUseWindowEvents() {
 function navigateMobileTab(id: typeof MOBILE_NAV_ITEMS[number]["id"]) {
   if (id === "dashboard") router.replace("/dashboard");
   if (id === "games") router.replace("/games" as any);
+  if (id === "flashcards") router.replace("/flashcards" as any);
   if (id === "insights") router.replace("/insights" as any);
   if (id === "vault") router.replace("/vault" as any);
   if (id === "profile") router.replace("/profile" as any);
@@ -246,8 +249,10 @@ export default function DashboardShell({
 
   function signOut() {
     signingOutRef.current = true;
+    const signingOutUserId = user?.id;
     clearDashboardUser();
     clearActiveResultsUser();
+    void clearPaoCache(signingOutUserId);
     setSettingsOpen(false);
     setProfileOpen(false);
     setUser(null);

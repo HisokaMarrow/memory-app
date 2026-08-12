@@ -33,4 +33,4 @@ jobs:
         run: npx expo export -p web
 
       - name: Deploy to Expo Hosting
-        run: eas deploy --non-interactive
+        run: eas deploy --prod --non-interactive

@@ -12,6 +12,7 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import DashboardShell from "../components/dashboard/DashboardShell";
+import { getCachedDashboardUser } from "../components/dashboard/dashboardSession";
 import {
   buildGraphAxisLabels,
   buildGraphGeometry,
@@ -46,8 +47,10 @@ import {
   loadMemoryVaultProgress,
   memoryVaultProgressEventName,
 } from "../components/vault/memoryVaultProgress";
+import { loadPaoOverview, type PaoOverview } from "../components/flashcards/paoStore";
 import { GAMES, type GameConfig } from "../data/gamesCatalog";
 import { dashboard as s } from "../styles/screens/dashboard.styles";
+import { FLASHCARD_ACCENT, flashcards as fs } from "../styles/screens/flashcards.styles";
 
 const PERSIST_KEY = "memoro-dashboard-state";
 
@@ -489,6 +492,7 @@ export default function Dashboard() {
   const [vaultReady, setVaultReady] = useState(false);
   const [resultsReady, setResultsReady] = useState(false);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [paoOverview, setPaoOverview] = useState<PaoOverview>({ systemCount: 0, pegCount: 0, coverage: 0, mastery: 0, due: 0, trouble: 0 });
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
@@ -502,6 +506,28 @@ export default function Dashboard() {
     } catch {
       // Ignore malformed dashboard state.
     }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    function refreshPaoOverview() {
+      const activeUser = getCachedDashboardUser();
+      if (!activeUser) return;
+      loadPaoOverview(activeUser.id)
+        .then((overview) => { if (alive) setPaoOverview(overview); })
+        .catch(() => undefined);
+    }
+    refreshPaoOverview();
+    if (!canUseWindowEvents()) return () => { alive = false; };
+    window.addEventListener("focus", refreshPaoOverview);
+    window.addEventListener("memoro-user-changed", refreshPaoOverview);
+    window.addEventListener("memoro-pao-updated", refreshPaoOverview);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", refreshPaoOverview);
+      window.removeEventListener("memoro-user-changed", refreshPaoOverview);
+      window.removeEventListener("memoro-pao-updated", refreshPaoOverview);
+    };
   }, []);
 
   useEffect(() => {
@@ -824,6 +850,28 @@ export default function Dashboard() {
                   </Text>
                 </View>
               </View>
+            </View>
+
+            <View style={{ paddingHorizontal: isMobile ? 16 : 32, marginBottom: 4 }}>
+              <TouchableOpacity
+                style={[fs.contentCard, isMobile && fs.contentCardMobile]}
+                onPress={() => router.push("/flashcards" as any)}
+              >
+                <View style={fs.sectionHeader}>
+                  <View>
+                    <Text style={[fs.panelKicker, { color: FLASHCARD_ACCENT }]}>Memory systems</Text>
+                    <Text style={fs.sectionTitle}>{paoOverview.systemCount ? "PAO mastery" : "Build your first PAO"}</Text>
+                    <Text style={fs.sectionText}>{paoOverview.systemCount ? `${paoOverview.systemCount} system${paoOverview.systemCount === 1 ? "" : "s"} synced across your devices.` : "Import a spreadsheet or start with a blank 00–99 system."}</Text>
+                  </View>
+                  <Feather name="layers" size={23} color={FLASHCARD_ACCENT} />
+                </View>
+                <View style={fs.statsGrid}>
+                  <View style={fs.statCard}><Text style={fs.statValue}>{paoOverview.mastery}%</Text><Text style={fs.statLabel}>Mastery</Text></View>
+                  <View style={fs.statCard}><Text style={fs.statValue}>{paoOverview.coverage}/{paoOverview.pegCount || 100}</Text><Text style={fs.statLabel}>Coverage</Text></View>
+                  <View style={fs.statCard}><Text style={fs.statValue}>{paoOverview.due}</Text><Text style={fs.statLabel}>Due now</Text></View>
+                  <View style={fs.statCard}><Text style={fs.statValue}>{paoOverview.trouble}</Text><Text style={fs.statLabel}>Trouble pegs</Text></View>
+                </View>
+              </TouchableOpacity>
             </View>
 
             {/* System Quests — 2×2 grid */}

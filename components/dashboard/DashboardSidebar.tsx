@@ -4,7 +4,7 @@ import { router } from "expo-router";
 
 import { dashboard as s } from "../../styles/screens/dashboard.styles";
 
-export type DashboardNavId = "dashboard" | "games" | "insights" | "vault" | "profile";
+export type DashboardNavId = "dashboard" | "games" | "flashcards" | "insights" | "vault" | "profile";
 
 type DashboardSidebarProps = {
   active: DashboardNavId;
@@ -17,12 +17,14 @@ type DashboardSidebarProps = {
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "grid", locked: false },
   { id: "games", label: "Games", icon: "zap", locked: false },
+  { id: "flashcards", label: "Flashcards", icon: "layers", locked: false },
   { id: "vault", label: "Vault", icon: "book-open", locked: true },
 ] as const;
 
 function navigate(next: DashboardNavId) {
   if (next === "dashboard") router.replace("/dashboard");
   if (next === "games") router.replace("/games" as any);
+  if (next === "flashcards") router.replace("/flashcards" as any);
   if (next === "insights") router.replace("/insights" as any);
   if (next === "vault") router.replace("/vault" as any);
   if (next === "profile") router.replace("/profile" as any);
