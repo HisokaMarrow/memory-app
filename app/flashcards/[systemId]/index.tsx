@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import type { User } from "@supabase/supabase-js";
@@ -35,6 +35,7 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const [heatmapWidth, setHeatmapWidth] = useState(0);
   const bundleRef = useRef<PaoSystemBundle | null>(bundle);
   const draftItemsRef = useRef<Record<string, PaoItem>>({});
   const dirtyKeysRef = useRef(new Set<string>());
@@ -78,6 +79,9 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
 
   const stats = useMemo(() => bundle ? calculatePaoStats(bundle) : null, [bundle]);
   const selected = bundle?.items.find((item) => item.key === selectedKey) ?? null;
+  const heatmapGap = 5;
+  const heatmapColumns = bundle ? Math.max(1, Math.min(bundle.items.length, heatmapWidth ? Math.floor((heatmapWidth + heatmapGap) / 51) : 10)) : 1;
+  const heatCellSize = heatmapWidth ? (heatmapWidth - heatmapGap * (heatmapColumns - 1)) / heatmapColumns : 46;
 
   function stageDraft(item: PaoItem) {
     const version = (draftVersionsRef.current.get(item.key) ?? 0) + 1;
@@ -189,17 +193,17 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
 
       <View style={[s.contentCard, isMobile && s.contentCardMobile]}>
         <View style={s.sectionHeader}>
-          <View><Text style={s.sectionTitle}>System heatmap</Text><Text style={s.sectionText}>Red is new; green is strong. Tap any peg for its details.</Text></View>
+          <View><Text style={s.sectionTitle}>System heatmap</Text><Text style={s.sectionText}>Grey is unsorted; red needs work; green is strong. Tap any peg for its details.</Text></View>
           <Text style={s.kindText}>{bundle.items.length} pegs</Text>
         </View>
-        <ScrollView horizontal style={s.heatmapScroll} contentContainerStyle={{ paddingBottom: 4 }}>
-          <View style={[s.heatmap, { width: bundle.system.kind === "cards" ? 658 : 505 }]}>
+        <View style={s.heatmapFrame} onLayout={(event) => setHeatmapWidth(Math.round(event.nativeEvent.layout.width))}>
+          <View style={s.heatmap}>
             {bundle.items.map((item) => {
               const strength = itemStrength(item, bundle.progress, bundle.system.fields.map((field) => field.id));
               return (
                 <TouchableOpacity
                   key={item.id}
-                  style={[s.heatCell, { backgroundColor: heatColor(strength), borderColor: selectedKey === item.key ? "#22224B" : "rgba(255,255,255,0.6)" }]}
+                  style={[s.heatCell, { width: heatCellSize, height: heatCellSize, backgroundColor: heatColor(strength), borderColor: selectedKey === item.key ? "#22224B" : "rgba(255,255,255,0.6)" }]}
                   onPress={() => setSelectedKey(item.key)}
                 >
                   <Text style={s.heatCellText}>{item.displayLabel}</Text>
@@ -207,7 +211,7 @@ function SystemDetail({ user, systemId, isMobile }: { user: User | null; systemI
               );
             })}
           </View>
-        </ScrollView>
+        </View>
 
         {selected ? (
           <View style={s.pegSheet}>
@@ -299,12 +303,14 @@ function Stat({ value, label }: { value: string; label: string }) {
 }
 
 function itemStrength(item: PaoItem, progress: PegProgress[], fields: string[]) {
-  const values = fields.map((field) => progress.find((entry) => entry.itemId === item.id && entry.field === field)?.strength ?? 0);
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  const values = fields.map((field) => progress.find((entry) => entry.itemId === item.id && entry.field === field)?.strength);
+  if (!values.length || values.some((value) => value === undefined)) return null;
+  return Math.max(0, Math.min(3, Math.min(...values.map((value) => value ?? 0))));
 }
 
-function heatColor(strength: number) {
-  return ["#C9544B", "#D87552", "#CB9B47", "#91A656", "#4D9A68", "#237A55"][Math.max(0, Math.min(5, Math.round(strength)))];
+function heatColor(strength: number | null) {
+  if (strength === null) return "#87949D";
+  return ["#C9544B", "#D79543", "#91A656", "#237A55"][Math.max(0, Math.min(3, Math.round(strength)))];
 }
 
 function seenCount(item: PaoItem, progress: PegProgress[]) {

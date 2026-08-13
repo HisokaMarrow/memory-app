@@ -6,21 +6,17 @@ export type DrillDirection =
   | { from: FieldId; to: FieldId[] };
 
 export type DrillMode = "flip" | "type" | "choice";
-export type DrillOrder = "random" | "sequential" | "smart";
 
 export type DrillConfig = {
   systemId: string;
   direction: DrillDirection;
   mode: DrillMode;
-  order: DrillOrder;
-  scope:
-    | { kind: "all" }
-    | { kind: "range"; from: string; to: string }
-    | { kind: "weak" }
-    | { kind: "starred" };
-  length: number | "all";
-  timerSeconds?: number;
+  length: number;
 };
+
+export type LeitnerBox = 0 | 1 | 2 | 3;
+export type BoxAssignment = LeitnerBox | "unseen";
+export type BoxCounts = { unseen: number; box0: number; box1: number; box2: number; box3: number };
 
 export type DrillTarget = {
   field: FieldId | "key";
@@ -44,7 +40,8 @@ export type GradeResult = {
 
 export type SwipeGrade = "poor" | "good";
 
-const INTERVALS_MS = [10 * 60_000, 24 * 60 * 60_000, 3 * 24 * 60 * 60_000, 7 * 24 * 60 * 60_000, 21 * 24 * 60 * 60_000, 60 * 24 * 60 * 60_000];
+const INTERVALS_MS = [10 * 60_000, 24 * 60 * 60_000, 7 * 24 * 60 * 60_000, 30 * 24 * 60 * 60_000];
+const BOX_WEIGHTS: Record<LeitnerBox, number> = { 0: 8, 1: 4, 2: 2, 3: 1 };
 
 export function classifySwipe(distanceX: number, threshold = 72): SwipeGrade | null {
   if (Math.abs(distanceX) < threshold) return null;
@@ -119,15 +116,8 @@ export function gradeAnswer(input: string, expected: string): GradeResult {
   return { verdict: close ? "close" : "wrong", expectedDisplay };
 }
 
-function progressFor(item: PaoItem, progress: PegProgress[], targetFields: FieldId[]) {
-  const matches = progress.filter((entry) => entry.itemId === item.id && targetFields.includes(entry.field));
-  if (!matches.length) return { strength: 0, dueAt: 0, lastSeenAt: 0, leech: false };
-  return {
-    strength: Math.min(...matches.map((entry) => entry.strength)),
-    dueAt: Math.min(...matches.map((entry) => Date.parse(entry.dueAt) || 0)),
-    lastSeenAt: Math.min(...matches.map((entry) => Date.parse(entry.lastSeenAt) || 0)),
-    leech: matches.some((entry) => entry.streak <= -3),
-  };
+function clampBox(value: number): LeitnerBox {
+  return Math.max(0, Math.min(3, Math.round(value))) as LeitnerBox;
 }
 
 function targetFields(direction: DrillDirection, fields: PaoField[]) {
@@ -175,42 +165,75 @@ function makeCard(item: PaoItem, direction: DrillDirection, fields: PaoField[]):
   };
 }
 
-function shuffled<T>(values: T[]) {
+function shuffled<T>(values: T[], random: () => number = Math.random) {
   const next = [...values];
   for (let index = next.length - 1; index > 0; index -= 1) {
-    const other = Math.floor(Math.random() * (index + 1));
+    const other = Math.floor(random() * (index + 1));
     [next[index], next[other]] = [next[other], next[index]];
   }
   return next;
 }
 
-export function buildQueue(items: PaoItem[], progress: PegProgress[], config: DrillConfig, fields: PaoField[] = []): DrillCard[] {
-  const configuredTargets = targetFields(config.direction, fields);
-  let pool = items.filter((item) => {
-    if (config.scope.kind === "starred") return Boolean(item.starred);
-    if (config.scope.kind === "range") return item.key >= config.scope.from && item.key <= config.scope.to;
-    if (config.scope.kind === "weak") return progressFor(item, progress, configuredTargets).strength <= 2;
-    return true;
+export function boxForItem(item: PaoItem, progress: PegProgress[], targetFieldIds: FieldId[]): BoxAssignment {
+  if (!targetFieldIds.length) return "unseen";
+  const rows = targetFieldIds.map((fieldId) => progress.find((entry) => entry.itemId === item.id && entry.field === fieldId));
+  if (rows.some((entry) => !entry)) return "unseen";
+  return clampBox(Math.min(...rows.map((entry) => entry?.strength ?? 0)));
+}
+
+export function getBoxCounts(items: PaoItem[], progress: PegProgress[], targetFieldIds: FieldId[]): BoxCounts {
+  const counts: BoxCounts = { unseen: 0, box0: 0, box1: 0, box2: 0, box3: 0 };
+  items.forEach((item) => {
+    const assignment = boxForItem(item, progress, targetFieldIds);
+    if (assignment === "unseen") counts.unseen += 1;
+    else counts[`box${assignment}` as keyof Omit<BoxCounts, "unseen">] += 1;
+  });
+  return counts;
+}
+
+export function defaultSessionLength(totalCards: number) {
+  return totalCards > 0 ? Math.max(1, Math.ceil(totalCards * 0.25)) : 0;
+}
+
+function weightedBoxItems(items: PaoItem[], progress: PegProgress[], targetFieldIds: FieldId[], length: number, random: () => number) {
+  const unseen: PaoItem[] = [];
+  const boxes: Record<LeitnerBox, PaoItem[]> = { 0: [], 1: [], 2: [], 3: [] };
+  items.forEach((item) => {
+    const assignment = boxForItem(item, progress, targetFieldIds);
+    if (assignment === "unseen") unseen.push(item);
+    else boxes[assignment].push(item);
   });
 
-  if (config.order === "sequential") {
-    pool = [...pool].sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.key.localeCompare(b.key, undefined, { numeric: true }));
-  } else if (config.order === "random") {
-    pool = shuffled(pool);
-  } else {
-    const now = Date.now();
-    pool = [...pool].sort((a, b) => {
-      const pa = progressFor(a, progress, configuredTargets);
-      const pb = progressFor(b, progress, configuredTargets);
-      if (pa.leech !== pb.leech) return pa.leech ? -1 : 1;
-      const aDue = pa.dueAt <= now;
-      const bDue = pb.dueAt <= now;
-      if (aDue !== bDue) return aDue ? -1 : 1;
-      return pa.strength - pb.strength || pa.lastSeenAt - pb.lastSeenAt || Math.random() - 0.5;
-    });
-  }
+  const wanted = Math.max(0, Math.min(items.length, Math.floor(length)));
+  const selected = shuffled(unseen, random).slice(0, wanted);
+  if (selected.length >= wanted) return selected;
 
-  const selected = config.length === "all" ? pool : pool.slice(0, config.length);
+  const remainingBoxes: Record<LeitnerBox, PaoItem[]> = {
+    0: shuffled(boxes[0], random),
+    1: shuffled(boxes[1], random),
+    2: shuffled(boxes[2], random),
+    3: shuffled(boxes[3], random),
+  };
+  const boxOrder: LeitnerBox[] = [0, 1, 2, 3];
+
+  while (selected.length < wanted) {
+    const available = boxOrder.filter((box) => remainingBoxes[box].length > 0);
+    if (!available.length) break;
+    const totalWeight = available.reduce<number>((sum, box) => sum + BOX_WEIGHTS[box], 0);
+    let roll = random() * totalWeight;
+    const chosen = available.find((box) => {
+      roll -= BOX_WEIGHTS[box];
+      return roll < 0;
+    }) ?? available[available.length - 1];
+    const item = remainingBoxes[chosen].pop();
+    if (item) selected.push(item);
+  }
+  return selected;
+}
+
+export function buildQueue(items: PaoItem[], progress: PegProgress[], config: DrillConfig, fields: PaoField[] = [], random: () => number = Math.random): DrillCard[] {
+  const configuredTargets = targetFields(config.direction, fields);
+  const selected = weightedBoxItems(items, progress, configuredTargets, config.length, random);
   return selected.map((item) => makeCard(item, config.direction, fields));
 }
 
@@ -233,7 +256,8 @@ export function buildChoices(card: DrillCard, pool: PaoItem[], count = 4): strin
 export function nextProgress(previous: PegProgress | undefined, result: GradeResult, elapsedMs: number, itemId?: string, field?: FieldId): PegProgress {
   const prev = previous ?? blankProgress(itemId ?? "", field ?? "");
   const correct = result.verdict !== "wrong";
-  const strength = correct ? Math.min(5, prev.strength + 1) : Math.max(0, prev.strength - 2);
+  const previousBox = previous ? clampBox(prev.strength) : null;
+  const strength: LeitnerBox = correct ? clampBox(previousBox === null ? 1 : previousBox + 1) : 0;
   const attemptsBefore = prev.correctCount + prev.wrongCount;
   const avgMs = Math.round((prev.avgMs * attemptsBefore + elapsedMs) / Math.max(1, attemptsBefore + 1));
   const now = Date.now();
@@ -242,7 +266,7 @@ export function nextProgress(previous: PegProgress | undefined, result: GradeRes
     itemId: itemId ?? prev.itemId,
     field: field ?? prev.field,
     strength,
-    dueAt: new Date(correct ? now + INTERVALS_MS[strength] : now + 60_000).toISOString(),
+    dueAt: new Date(now + INTERVALS_MS[strength]).toISOString(),
     correctCount: prev.correctCount + (correct ? 1 : 0),
     wrongCount: prev.wrongCount + (correct ? 0 : 1),
     streak: correct ? Math.max(1, prev.streak + 1) : Math.min(-1, prev.streak > 0 ? -1 : prev.streak - 1),

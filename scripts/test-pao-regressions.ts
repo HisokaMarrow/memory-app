@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 
-import { classifySwipe, gradeAnswer } from "../components/flashcards/drillEngine";
+import { boxForItem, buildQueue, classifySwipe, defaultSessionLength, getBoxCounts, gradeAnswer, nextProgress } from "../components/flashcards/drillEngine";
 import { applyMapping, detectImport, type RawGrid } from "../components/flashcards/paoImport";
 import {
   enqueuePendingDelete,
@@ -13,7 +13,7 @@ import {
   type PendingDeleteMutation,
   type PendingWriteMutation,
 } from "../components/flashcards/paoMutationQueue";
-import type { PaoSystemBundle } from "../components/flashcards/paoTypes";
+import type { PaoItem, PaoSystemBundle, PegProgress } from "../components/flashcards/paoTypes";
 
 const grid: RawGrid = [
   ["Number", "Person", "Action", "Object"],
@@ -37,6 +37,55 @@ assert.equal(
 assert.equal(classifySwipe(-90), "poor", "a left swipe must grade the card as poor");
 assert.equal(classifySwipe(90), "good", "a right swipe must grade the card as good");
 assert.equal(classifySwipe(40), null, "a short drag must return the card without grading it");
+
+const testFields = [{ id: "person", label: "Person", shortLabel: "P" }, { id: "action", label: "Action", shortLabel: "A" }];
+const testItems: PaoItem[] = ["unseen", "box0", "box3"].map((key, position) => ({
+  id: `test:${key}`,
+  systemId: "test",
+  key,
+  displayLabel: key,
+  values: { person: `${key} person`, action: `${key} action` },
+  position,
+}));
+function progressRow(itemId: string, field: string, strength: number): PegProgress {
+  return {
+    itemId,
+    field,
+    strength,
+    dueAt: "2026-08-13T00:00:00.000Z",
+    correctCount: 1,
+    wrongCount: 0,
+    streak: 1,
+    avgMs: 1000,
+    lastSeenAt: "2026-08-13T00:00:00.000Z",
+  };
+}
+const boxProgress = [progressRow("test:box0", "person", 0), progressRow("test:box3", "person", 5)];
+assert.equal(boxForItem(testItems[0], boxProgress, ["person"]), "unseen", "cards without progress must remain unallocated");
+assert.equal(boxForItem(testItems[2], boxProgress, ["person"]), 3, "legacy strengths above Box 3 must be clamped");
+assert.equal(boxForItem(testItems[1], boxProgress, ["person", "action"]), "unseen", "a card is unallocated while any selected field is unseen");
+assert.deepEqual(getBoxCounts(testItems, boxProgress, ["person"]), { unseen: 1, box0: 1, box1: 0, box2: 0, box3: 1 });
+assert.equal(defaultSessionLength(100), 25, "the default session must use 25% of the system");
+assert.equal(defaultSessionLength(3), 1, "small systems must still recommend at least one card");
+
+const deterministicQueue = buildQueue(testItems, boxProgress, {
+  systemId: "test",
+  direction: { from: "key", to: ["person"] },
+  mode: "flip",
+  length: 2,
+}, testFields, () => 0);
+assert.equal(deterministicQueue[0].item.key, "unseen", "unallocated cards must always be selected first");
+assert.equal(deterministicQueue[1].item.key, "box0", "Box 0 must win the highest weighted selection");
+
+const correct = { verdict: "correct" as const, expectedDisplay: "answer" };
+const wrong = { verdict: "wrong" as const, expectedDisplay: "answer" };
+assert.equal(nextProgress(undefined, correct, 1000, "test:new", "person").strength, 1, "a first correct answer must enter Box 1");
+assert.equal(nextProgress(undefined, wrong, 1000, "test:new", "person").strength, 0, "a first wrong answer must enter Box 0");
+assert.equal(nextProgress(progressRow("test:box0", "person", 0), correct, 1000).strength, 1, "correct answers must promote one box");
+assert.equal(nextProgress(progressRow("test:box1", "person", 1), correct, 1000).strength, 2);
+assert.equal(nextProgress(progressRow("test:box2", "person", 2), correct, 1000).strength, 3);
+assert.equal(nextProgress(progressRow("test:box3", "person", 3), correct, 1000).strength, 3, "Box 3 is the mastery ceiling");
+assert.equal(nextProgress(progressRow("test:box3", "person", 3), wrong, 1000).strength, 0, "a wrong answer from any box must reset to Box 0");
 
 const workbook = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(grid), "PAO");

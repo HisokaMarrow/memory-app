@@ -565,12 +565,12 @@ export function calculatePaoStats(bundle: PaoSystemBundle) {
   bundle.progress.forEach((entry) => progressByItem.set(entry.itemId, [...(progressByItem.get(entry.itemId) ?? []), entry]));
   const strengths = bundle.items.flatMap((item) => {
     const rows = progressByItem.get(item.id) ?? [];
-    return bundle.system.fields.map((field) => rows.find((entry) => entry.field === field.id)?.strength ?? 0);
+    return bundle.system.fields.map((field) => Math.max(0, Math.min(3, rows.find((entry) => entry.field === field.id)?.strength ?? 0)));
   });
   const now = Date.now();
   return {
     coverage: bundle.items.filter((item) => bundle.system.fields.some((field) => Boolean(item.values[field.id]?.trim()))).length,
-    mastery: strengths.length ? Math.round((strengths.reduce((sum, value) => sum + value, 0) / (strengths.length * 5)) * 100) : 0,
+    mastery: strengths.length ? Math.round((strengths.reduce((sum, value) => sum + value, 0) / (strengths.length * 3)) * 100) : 0,
     due: bundle.progress.filter((entry) => Date.parse(entry.dueAt) <= now).length,
     trouble: new Set(bundle.progress.filter((entry) => entry.streak <= -3).map((entry) => entry.itemId)).size,
   };

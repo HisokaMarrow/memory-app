@@ -6,16 +6,14 @@ import * as Speech from "expo-speech";
 import type { User } from "@supabase/supabase-js";
 
 import DashboardShell from "../../../components/dashboard/DashboardShell";
-import { buildChoices, buildQueue, classifySwipe, gradeAnswer, nextProgress, type DrillCard, type DrillConfig, type DrillDirection, type DrillMode, type DrillOrder, type GradeResult } from "../../../components/flashcards/drillEngine";
+import { buildChoices, buildQueue, classifySwipe, defaultSessionLength, getBoxCounts, gradeAnswer, nextProgress, type DrillCard, type DrillConfig, type DrillDirection, type DrillMode, type GradeResult } from "../../../components/flashcards/drillEngine";
 import { loadDrillPreferences, saveDrillPreferences } from "../../../components/flashcards/paoPreferences";
 import { calculatePaoStats, loadPaoSystem, savePaoProgress } from "../../../components/flashcards/paoStore";
-import type { PaoSystemBundle, PegProgress } from "../../../components/flashcards/paoTypes";
+import type { FieldId, PaoSystemBundle, PegProgress } from "../../../components/flashcards/paoTypes";
 import { saveGameResult } from "../../../components/games/resultsStore";
 import { FLASHCARD_ACCENT, flashcards as s } from "../../../styles/screens/flashcards.styles";
 
 type Phase = "setup" | "play" | "results";
-type DirectionChoice = "key-fields" | "fields-key" | "field-field";
-type ScopeChoice = "all" | "weak" | "starred" | "range";
 type Outcome = { card: DrillCard; correct: boolean; fieldResults: GradeResult[]; elapsedMs: number };
 
 export default function FlashcardTrainScreen() {
@@ -31,13 +29,8 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
   const [bundle, setBundle] = useState<PaoSystemBundle | null>(null);
   const [phase, setPhase] = useState<Phase>("setup");
   const [mode, setMode] = useState<DrillMode>("flip");
-  const [order, setOrder] = useState<DrillOrder>("smart");
-  const [directionChoice, setDirectionChoice] = useState<DirectionChoice>("key-fields");
-  const [scopeChoice, setScopeChoice] = useState<ScopeChoice>(itemKey ? "range" : "all");
-  const [rangeFrom, setRangeFrom] = useState(itemKey ?? "00");
-  const [rangeTo, setRangeTo] = useState(itemKey ?? "99");
-  const [length, setLength] = useState<number | "all">(itemKey ? 1 : 25);
-  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [practiceField, setPracticeField] = useState<"all" | FieldId>("all");
+  const [lengthInput, setLengthInput] = useState(itemKey ? "1" : "");
   const [audio, setAudio] = useState(false);
   const [queue, setQueue] = useState<DrillCard[]>([]);
   const [index, setIndex] = useState(0);
@@ -47,7 +40,6 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [sessionProgress, setSessionProgress] = useState<PegProgress[]>([]);
   const [sessionMasteryBefore, setSessionMasteryBefore] = useState(0);
-  const [secondsLeft, setSecondsLeft] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const cardStartedAt = useRef(Date.now());
@@ -64,32 +56,44 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
         setSessionProgress(next.progress);
         const saved = await loadDrillPreferences(systemId);
         if (saved?.mode) setMode(saved.mode);
-        if (saved?.order) setOrder(saved.order);
-        if (saved?.length) setLength(saved.length);
-        if (saved?.timerSeconds) setTimerSeconds(saved.timerSeconds);
+        const available = itemKey ? next.items.filter((item) => item.key === itemKey).length : next.items.length;
+        const savedLength = typeof saved?.length === "number" && Number.isFinite(saved.length) && saved.length > 0 ? saved.length : null;
+        setLengthInput(String(itemKey ? 1 : Math.min(available, savedLength ?? defaultSessionLength(available))));
+        const savedDirection = saved?.direction;
+        if (savedDirection?.from === "key" && Array.isArray(savedDirection.to) && savedDirection.to.length === 1 && next.system.fields.some((field) => field.id === savedDirection.to[0])) {
+          setPracticeField(savedDirection.to[0]);
+        }
       })
       .catch((nextError) => setError(nextError instanceof Error ? nextError.message : "Training could not be opened."));
-  }, [systemId, user]);
+  }, [itemKey, systemId, user]);
 
   const direction = useMemo<DrillDirection>(() => {
     const fields = bundle?.system.fields ?? [];
-    if (directionChoice === "fields-key") return { from: "fields", to: "key" };
-    if (directionChoice === "field-field") {
-      const from = fields[0]?.id ?? "person";
-      return { from, to: fields.slice(1).map((field) => field.id) };
-    }
-    return { from: "key", to: fields.map((field) => field.id) };
-  }, [bundle, directionChoice]);
+    const selected = fields.find((field) => field.id === practiceField);
+    return { from: "key", to: selected ? [selected.id] : fields.map((field) => field.id) };
+  }, [bundle, practiceField]);
+
+  const availableItems = useMemo(() => {
+    if (!bundle) return [];
+    return itemKey ? bundle.items.filter((item) => item.key === itemKey) : bundle.items;
+  }, [bundle, itemKey]);
+  const recommendedLength = defaultSessionLength(availableItems.length);
+  const sessionLength = useMemo(() => {
+    const parsed = Number.parseInt(lengthInput, 10);
+    const requested = Number.isFinite(parsed) && parsed > 0 ? parsed : recommendedLength;
+    return Math.max(1, Math.min(availableItems.length || 1, requested));
+  }, [availableItems.length, lengthInput, recommendedLength]);
 
   const config = useMemo<DrillConfig>(() => ({
     systemId,
     direction,
     mode,
-    order,
-    scope: scopeChoice === "range" ? { kind: "range", from: rangeFrom, to: rangeTo } : { kind: scopeChoice },
-    length,
-    timerSeconds: timerSeconds || undefined,
-  }), [direction, length, mode, order, rangeFrom, rangeTo, scopeChoice, systemId, timerSeconds]);
+    length: sessionLength,
+  }), [direction, mode, sessionLength, systemId]);
+
+  const boxCounts = useMemo(() => bundle
+    ? getBoxCounts(availableItems, bundle.progress, direction.to === "key" ? ["key"] : direction.to)
+    : { unseen: 0, box0: 0, box1: 0, box2: 0, box3: 0 }, [availableItems, bundle, direction]);
 
   const current = queue[index];
   const choices = useMemo(() => current && bundle ? buildChoices(current, bundle.items) : [], [bundle, current]);
@@ -116,7 +120,7 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
       await saveGameResult({
         id: `pao-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         gameId: "pao-flashcards",
-        gameTitle: `${bundle.system.name} — ${directionLabel(direction, bundle.system.fields.map((field) => field.label))}`,
+        gameTitle: `${bundle.system.name} — ${directionLabel(direction, bundle.system.fields)}`,
         createdAt: new Date().toISOString(),
         mode: mode === "flip" ? "manual" : "auto",
         exerciseSeconds: elapsedSeconds,
@@ -133,11 +137,10 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
           systemId,
           kind: bundle.system.kind,
           mode,
-          direction: directionChoice,
-          targets: directionLabel(direction, bundle.system.fields.map((field) => field.label)),
-          scope: scopeChoice,
-          order,
-          timerSeconds,
+          boxSystem: "leitner-4",
+          practice: practiceField,
+          targets: directionLabel(direction, bundle.system.fields),
+          sessionLength: nextOutcomes.length,
         },
       });
     } catch (nextError) {
@@ -146,7 +149,7 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
       finishingRef.current = false;
       setSaving(false);
     }
-  }, [bundle, direction, directionChoice, mode, order, scopeChoice, systemId, timerSeconds]);
+  }, [bundle, direction, mode, practiceField, systemId]);
 
   const recordResult = useCallback((results: GradeResult[]) => {
     if (!current || finishingRef.current) return;
@@ -155,7 +158,10 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     const progressMap = new Map(sessionProgress.map((entry) => [`${entry.itemId}:${entry.field}`, entry]));
     current.targets.forEach((target, targetIndex) => {
       const key = `${current.item.id}:${target.field}`;
-      progressMap.set(key, nextProgress(progressMap.get(key), results[targetIndex] ?? { verdict: "wrong", expectedDisplay: target.expected }, elapsedMs, current.item.id, target.field));
+      const fieldResult = correct
+        ? results[targetIndex] ?? { verdict: "correct", expectedDisplay: target.expected }
+        : { verdict: "wrong" as const, expectedDisplay: target.expected };
+      progressMap.set(key, nextProgress(progressMap.get(key), fieldResult, elapsedMs, current.item.id, target.field));
     });
     const nextProgressRows = [...progressMap.values()];
     const nextOutcomes = [...outcomes, { card: current, correct, fieldResults: results, elapsedMs }];
@@ -169,9 +175,8 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     setRevealed(false);
     setAnswers({});
     setFeedback(null);
-    setSecondsLeft(timerSeconds);
     cardStartedAt.current = Date.now();
-  }, [current, finishSession, index, outcomes, queue.length, sessionProgress, timerSeconds]);
+  }, [current, finishSession, index, outcomes, queue.length, sessionProgress]);
 
   const gradeSwipe = useCallback((grade: "poor" | "good") => {
     if (!current) return;
@@ -209,24 +214,14 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     swipeX.setValue(0);
   }, [current?.id, mode, swipeX]);
 
-  useEffect(() => {
-    if (phase !== "play" || !current || !timerSeconds || feedback) return;
-    if (secondsLeft <= 0) {
-      recordResult(current.targets.map((target) => ({ verdict: "wrong", expectedDisplay: target.expected })));
-      return;
-    }
-    const timer = setTimeout(() => setSecondsLeft((value) => value - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [current, feedback, phase, recordResult, secondsLeft, timerSeconds]);
-
   function startSession(onlyKeys?: string[]) {
     if (!bundle) return;
     let sourceItems = bundle.items;
     if (itemKey) sourceItems = sourceItems.filter((item) => item.key === itemKey);
     if (onlyKeys?.length) sourceItems = sourceItems.filter((item) => onlyKeys.includes(item.key));
-    const nextQueue = buildQueue(sourceItems, bundle.progress, { ...config, length: onlyKeys?.length ? "all" : config.length }, bundle.system.fields);
+    const nextQueue = buildQueue(sourceItems, bundle.progress, { ...config, length: onlyKeys?.length ?? config.length }, bundle.system.fields);
     if (!nextQueue.length) {
-      setError("No pegs match those settings. Try All pegs or widen the range.");
+      setError("There are no cards available for this session.");
       return;
     }
     void saveDrillPreferences(config);
@@ -238,7 +233,6 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     setRevealed(false);
     setAnswers({});
     setFeedback(null);
-    setSecondsLeft(timerSeconds);
     setError("");
     setPhase("play");
     cardStartedAt.current = Date.now();
@@ -300,22 +294,38 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
       <View style={[s.trainStage, isMobile && s.trainStageMobile]}>
         {phase === "setup" ? (
           <View style={[s.setupPanel, isMobile && s.setupPanelMobile]}>
-            <View><Text style={s.panelKicker}>Training settings</Text><Text style={s.sectionTitle}>Choose how you want to recall</Text><Text style={s.sectionText}>Your last-used settings are remembered for this system.</Text></View>
-            <View style={s.setupGrid}>
-              <Setting label="Mode"><Options values={["flip", "type", "choice"]} value={mode} onChange={(value) => setMode(value as DrillMode)} /></Setting>
-              <Setting label="Direction"><Options values={bundle.system.fields.length > 1 ? ["key-fields", "fields-key", "field-field"] : ["key-fields", "fields-key"]} labels={{ "key-fields": "Key → fields", "fields-key": "Fields → key", "field-field": "Person → rest" }} value={directionChoice} onChange={(value) => setDirectionChoice(value as DirectionChoice)} /></Setting>
-              <Setting label="Order"><Options values={["smart", "random", "sequential"]} value={order} onChange={(value) => setOrder(value as DrillOrder)} /></Setting>
-              <Setting label="Scope"><Options values={["all", "weak", "starred", "range"]} value={scopeChoice} onChange={(value) => setScopeChoice(value as ScopeChoice)} /></Setting>
-              <Setting label="Length"><Options values={[10, 25, 50, "all"]} value={length} onChange={(value) => setLength(value as number | "all")} /></Setting>
-              <Setting label="Timer"><Options values={[0, 10, 20]} labels={{ "0": "Untimed", "10": "10 sec", "20": "20 sec" }} value={timerSeconds} onChange={(value) => setTimerSeconds(Number(value))} /></Setting>
-              <Setting label="Audio prompt"><Options values={["off", "on"]} value={audio ? "on" : "off"} onChange={(value) => setAudio(value === "on")} /></Setting>
-              {scopeChoice === "range" ? <Setting label="Key range"><View style={s.optionRow}><TextInput style={[s.input, { width: 85 }]} value={rangeFrom} onChangeText={setRangeFrom} placeholder="00" /><TextInput style={[s.input, { width: 85 }]} value={rangeTo} onChangeText={setRangeTo} placeholder="99" /></View></Setting> : null}
+            <View><Text style={s.panelKicker}>Training settings</Text><Text style={s.sectionTitle}>A simple four-box session</Text><Text style={s.sectionText}>Unsorted cards appear first. Correct answers move up a box; missed cards return to Box 0.</Text></View>
+            <View style={s.boxSummary}>
+              <BoxCount label="Unsorted" value={boxCounts.unseen} tone="unseen" />
+              <BoxCount label="Box 0" value={boxCounts.box0} tone="box0" />
+              <BoxCount label="Box 1" value={boxCounts.box1} tone="box1" />
+              <BoxCount label="Box 2" value={boxCounts.box2} tone="box2" />
+              <BoxCount label="Box 3" value={boxCounts.box3} tone="box3" />
             </View>
-            <TouchableOpacity style={s.primaryButton} onPress={() => startSession()}><Feather name="play" size={15} color="#FFFFFF" /><Text style={s.primaryButtonText}>Start {length === "all" ? "full" : length}-card session</Text></TouchableOpacity>
+            <View style={s.setupGrid}>
+              <Setting label="Mode"><Options values={["flip", "type", "choice"]} labels={{ flip: "Flip", type: "Type", choice: "Multiple choice" }} value={mode} onChange={(value) => setMode(value as DrillMode)} /></Setting>
+              <Setting label="Practice"><Options values={["all", ...bundle.system.fields.map((field) => field.id)]} labels={{ all: bundle.system.fields.length === 3 ? "All three" : "All fields", ...Object.fromEntries(bundle.system.fields.map((field) => [field.id, field.label])) }} value={practiceField} onChange={(value) => setPracticeField(String(value))} /></Setting>
+              <Setting label="Cards this session">
+                <TextInput
+                  style={s.input}
+                  value={lengthInput}
+                  onChangeText={(value) => setLengthInput(value.replace(/[^0-9]/g, ""))}
+                  onBlur={() => setLengthInput(String(sessionLength))}
+                  keyboardType="number-pad"
+                  inputMode="numeric"
+                  selectTextOnFocus
+                  maxLength={5}
+                  accessibilityLabel="Number of cards in this session"
+                />
+                <Text style={s.settingHint}>Suggested: {recommendedLength} cards (25% of this system). Maximum {availableItems.length}.</Text>
+              </Setting>
+              <Setting label="Audio prompt"><Options values={["off", "on"]} value={audio ? "on" : "off"} onChange={(value) => setAudio(value === "on")} /></Setting>
+            </View>
+            <TouchableOpacity style={s.primaryButton} onPress={() => startSession()}><Feather name="play" size={15} color="#FFFFFF" /><Text style={s.primaryButtonText}>Start {sessionLength}-card session</Text></TouchableOpacity>
           </View>
         ) : phase === "play" && current ? (
           <View style={[s.setupPanel, isMobile && s.setupPanelMobile]}>
-            <View style={s.sessionTop}><Text style={s.sessionCounter}>{index + 1} of {queue.length}</Text>{timerSeconds ? <Text style={s.timerText}>{secondsLeft}s</Text> : null}</View>
+            <View style={s.sessionTop}><Text style={s.sessionCounter}>{index + 1} of {queue.length}</Text><Text style={s.sessionBoxText}>Unsorted first · Box 0 most often</Text></View>
             <View style={s.progressTrack}><View style={[s.progressFill, { width: `${((index + 1) / queue.length) * 100}%` }]} /></View>
             <Animated.View
               style={[s.swipeCardWrap, mode === "flip" && { transform: [{ translateX: swipeX }, { rotate: swipeX.interpolate({ inputRange: [-220, 0, 220], outputRange: ["-7deg", "0deg", "7deg"], extrapolate: "clamp" }) }] }]}
@@ -366,12 +376,16 @@ function Setting({ label, children }: { label: string; children: React.ReactNode
   return <View style={s.setupField}><Text style={s.setupLabel}>{label}</Text>{children}</View>;
 }
 
+function BoxCount({ label, value, tone }: { label: string; value: number; tone: "unseen" | "box0" | "box1" | "box2" | "box3" }) {
+  return <View style={[s.boxCount, s[`boxCount_${tone}`]]}><Text style={s.boxCountValue}>{value}</Text><Text style={s.boxCountLabel}>{label}</Text></View>;
+}
+
 function Options({ values, value, labels = {}, onChange }: { values: (string | number)[]; value: string | number; labels?: Record<string, string>; onChange: (value: string | number) => void }) {
   return <View style={s.optionRow}>{values.map((option) => <TouchableOpacity key={String(option)} style={[s.optionButton, option === value && s.optionButtonActive]} onPress={() => onChange(option)}><Text style={[s.optionText, option === value && s.optionTextActive]}>{labels[String(option)] ?? String(option)}</Text></TouchableOpacity>)}</View>;
 }
 
-function directionLabel(direction: DrillDirection, fieldLabels: string[]) {
-  if (direction.to === "key") return `${fieldLabels.join(" / ")} → Key`;
-  if (direction.from === "key") return `Key → ${fieldLabels.join(" / ")}`;
+function directionLabel(direction: DrillDirection, fields: { id: FieldId; label: string }[]) {
+  if (direction.to === "key") return `${fields.map((field) => field.label).join(" / ")} → Key`;
+  if (direction.from === "key") return `Key → ${(direction.to as FieldId[]).map((fieldId) => fields.find((field) => field.id === fieldId)?.label ?? fieldId).join(" / ")}`;
   return `${direction.from} → ${(direction.to as string[]).join(" / ")}`;
 }
