@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Animated, PanResponder, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Speech from "expo-speech";
 import type { User } from "@supabase/supabase-js";
 
 import DashboardShell from "../../../components/dashboard/DashboardShell";
-import { buildChoices, buildQueue, gradeAnswer, nextProgress, type DrillCard, type DrillConfig, type DrillDirection, type DrillMode, type DrillOrder, type GradeResult } from "../../../components/flashcards/drillEngine";
+import { buildChoices, buildQueue, classifySwipe, gradeAnswer, nextProgress, type DrillCard, type DrillConfig, type DrillDirection, type DrillMode, type DrillOrder, type GradeResult } from "../../../components/flashcards/drillEngine";
 import { loadDrillPreferences, saveDrillPreferences } from "../../../components/flashcards/paoPreferences";
 import { calculatePaoStats, loadPaoSystem, savePaoProgress } from "../../../components/flashcards/paoStore";
 import type { PaoSystemBundle, PegProgress } from "../../../components/flashcards/paoTypes";
@@ -53,6 +53,8 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
   const cardStartedAt = useRef(Date.now());
   const sessionStartedAt = useRef(Date.now());
   const finishingRef = useRef(false);
+  const swipeX = useRef(new Animated.Value(0)).current;
+  const suppressCardTapRef = useRef(false);
 
   useEffect(() => {
     if (!user) return;
@@ -171,6 +173,42 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     cardStartedAt.current = Date.now();
   }, [current, finishSession, index, outcomes, queue.length, sessionProgress, timerSeconds]);
 
+  const gradeSwipe = useCallback((grade: "poor" | "good") => {
+    if (!current) return;
+    recordResult(current.targets.map((target) => ({
+      verdict: grade === "good" ? "correct" : "wrong",
+      expectedDisplay: target.expected,
+    })));
+  }, [current, recordResult]);
+
+  const swipeResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => mode === "flip"
+      && Math.abs(gesture.dx) > 8
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+    onPanResponderGrant: () => { suppressCardTapRef.current = true; },
+    onPanResponderMove: (_, gesture) => swipeX.setValue(gesture.dx),
+    onPanResponderRelease: (_, gesture) => {
+      const grade = classifySwipe(gesture.dx);
+      if (grade) {
+        swipeX.setValue(0);
+        gradeSwipe(grade);
+        setTimeout(() => { suppressCardTapRef.current = false; }, 0);
+        return;
+      }
+      Animated.spring(swipeX, { toValue: 0, friction: 7, tension: 70, useNativeDriver: true }).start();
+      setTimeout(() => { suppressCardTapRef.current = false; }, 0);
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(swipeX, { toValue: 0, friction: 7, tension: 70, useNativeDriver: true }).start();
+      setTimeout(() => { suppressCardTapRef.current = false; }, 0);
+    },
+  }), [gradeSwipe, mode, swipeX]);
+
+  useEffect(() => {
+    swipeX.stopAnimation();
+    swipeX.setValue(0);
+  }, [current?.id, mode, swipeX]);
+
   useEffect(() => {
     if (phase !== "play" || !current || !timerSeconds || feedback) return;
     if (secondsLeft <= 0) {
@@ -205,6 +243,41 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
     setPhase("play");
     cardStartedAt.current = Date.now();
     sessionStartedAt.current = Date.now();
+  }
+
+  function renderCardContents() {
+    if (!current) return null;
+    return (
+      <>
+        {mode === "flip" ? (
+          <>
+            <Animated.View style={[s.swipeGrade, s.swipePoor, { pointerEvents: "none", opacity: swipeX.interpolate({ inputRange: [-100, -24, 0], outputRange: [1, 0.2, 0], extrapolate: "clamp" }) }]}>
+              <Feather name="arrow-left" size={14} color="#B64036" /><Text style={s.swipePoorText}>Poor</Text>
+            </Animated.View>
+            <Animated.View style={[s.swipeGrade, s.swipeGood, { pointerEvents: "none", opacity: swipeX.interpolate({ inputRange: [0, 24, 100], outputRange: [0, 0.2, 1], extrapolate: "clamp" }) }]}>
+              <Text style={s.swipeGoodText}>Good</Text><Feather name="arrow-right" size={14} color="#23845B" />
+            </Animated.View>
+          </>
+        ) : null}
+        <Text style={s.promptLabel}>{current.promptLabel}</Text>
+        <Text style={[s.prompt, isMobile && s.promptMobile]}>{current.prompt || "—"}</Text>
+        {audio ? <TouchableOpacity style={[s.secondaryButton, { marginTop: 12 }]} onPress={(event) => { event.stopPropagation(); Speech.speak(current.prompt, { rate: 0.85 }); }}><Feather name="volume-2" size={14} color="#526672" /><Text style={s.secondaryButtonText}>Repeat</Text></TouchableOpacity> : null}
+
+        {mode === "flip" ? (
+          <>
+            {revealed ? <View style={s.revealValues}>{current.targets.map((target) => <View key={target.field} style={s.revealValue}><Text style={s.revealLabel}>{target.label}</Text><Text style={s.revealAnswer}>{target.expected || "Not set"}</Text></View>)}</View> : null}
+            <Text style={s.gestureHint}>{revealed ? "Swipe left Poor · Swipe right Good" : "Tap to reveal · Swipe left Poor · Swipe right Good"}</Text>
+          </>
+        ) : mode === "type" ? (
+          <View style={s.answerStack}>
+            {current.targets.map((target) => <TextInput key={target.field} style={[s.input, feedback?.[current.targets.indexOf(target)]?.verdict === "wrong" && s.feedbackWrong, feedback?.[current.targets.indexOf(target)]?.verdict && feedback?.[current.targets.indexOf(target)]?.verdict !== "wrong" && s.feedbackCorrect]} value={answers[target.field] ?? ""} onChangeText={(value) => setAnswers((currentAnswers) => ({ ...currentAnswers, [target.field]: value }))} placeholder={target.label} editable={!feedback} onSubmitEditing={() => {}} />)}
+            {feedback ? current.targets.map((target, targetIndex) => <Text key={target.field} style={[s.sectionText, { color: feedback[targetIndex]?.verdict === "wrong" ? "#B64036" : "#23845B" }]}>{target.label}: {feedback[targetIndex]?.verdict} · {target.expected}</Text>) : null}
+          </View>
+        ) : (
+          <View style={s.choiceGrid}>{choices.map((choice) => <TouchableOpacity key={choice} disabled={Boolean(feedback)} style={[s.choiceButton, feedback && choice === current.targets.map((target) => target.expected).join(" · ") && s.feedbackCorrect]} onPress={() => { const expected = current.targets.map((target) => target.expected).join(" · "); const result = gradeAnswer(choice, expected); setFeedback(current.targets.map((target) => ({ ...result, expectedDisplay: target.expected }))); }}><Text style={s.choiceText}>{choice}</Text></TouchableOpacity>)}</View>
+        )}
+      </>
+    );
   }
 
   if (!bundle) {
@@ -244,22 +317,22 @@ function TrainExperience({ user, systemId, itemKey, isMobile }: { user: User | n
           <View style={[s.setupPanel, isMobile && s.setupPanelMobile]}>
             <View style={s.sessionTop}><Text style={s.sessionCounter}>{index + 1} of {queue.length}</Text>{timerSeconds ? <Text style={s.timerText}>{secondsLeft}s</Text> : null}</View>
             <View style={s.progressTrack}><View style={[s.progressFill, { width: `${((index + 1) / queue.length) * 100}%` }]} /></View>
-            <View style={[s.flashCard, isMobile && s.flashCardMobile]}>
-              <Text style={s.promptLabel}>{current.promptLabel}</Text>
-              <Text style={[s.prompt, isMobile && s.promptMobile]}>{current.prompt || "—"}</Text>
-              {audio ? <TouchableOpacity style={[s.secondaryButton, { marginTop: 12 }]} onPress={() => Speech.speak(current.prompt, { rate: 0.85 })}><Feather name="volume-2" size={14} color="#526672" /><Text style={s.secondaryButtonText}>Repeat</Text></TouchableOpacity> : null}
-
+            <Animated.View
+              style={[s.swipeCardWrap, mode === "flip" && { transform: [{ translateX: swipeX }, { rotate: swipeX.interpolate({ inputRange: [-220, 0, 220], outputRange: ["-7deg", "0deg", "7deg"], extrapolate: "clamp" }) }] }]}
+              {...(mode === "flip" ? swipeResponder.panHandlers : {})}
+            >
               {mode === "flip" ? (
-                revealed ? <View style={s.revealValues}>{current.targets.map((target) => <View key={target.field} style={s.revealValue}><Text style={s.revealLabel}>{target.label}</Text><Text style={s.revealAnswer}>{target.expected || "Not set"}</Text></View>)}</View> : null
-              ) : mode === "type" ? (
-                <View style={s.answerStack}>
-                  {current.targets.map((target) => <TextInput key={target.field} style={[s.input, feedback?.[current.targets.indexOf(target)]?.verdict === "wrong" && s.feedbackWrong, feedback?.[current.targets.indexOf(target)]?.verdict && feedback?.[current.targets.indexOf(target)]?.verdict !== "wrong" && s.feedbackCorrect]} value={answers[target.field] ?? ""} onChangeText={(value) => setAnswers((currentAnswers) => ({ ...currentAnswers, [target.field]: value }))} placeholder={target.label} editable={!feedback} onSubmitEditing={() => {}} />)}
-                  {feedback ? current.targets.map((target, targetIndex) => <Text key={target.field} style={[s.sectionText, { color: feedback[targetIndex]?.verdict === "wrong" ? "#B64036" : "#23845B" }]}>{target.label}: {feedback[targetIndex]?.verdict} · {target.expected}</Text>) : null}
-                </View>
-              ) : (
-                <View style={s.choiceGrid}>{choices.map((choice) => <TouchableOpacity key={choice} disabled={Boolean(feedback)} style={[s.choiceButton, feedback && choice === current.targets.map((target) => target.expected).join(" · ") && s.feedbackCorrect]} onPress={() => { const expected = current.targets.map((target) => target.expected).join(" · "); const result = gradeAnswer(choice, expected); setFeedback(current.targets.map((target) => ({ ...result, expectedDisplay: target.expected }))); }}><Text style={s.choiceText}>{choice}</Text></TouchableOpacity>)}</View>
-              )}
-            </View>
+                <TouchableOpacity
+                  activeOpacity={0.96}
+                  accessibilityRole="button"
+                  accessibilityLabel={revealed ? "Answer revealed. Swipe left for poor or right for good." : "Tap to reveal. Swipe left for poor or right for good."}
+                  style={[s.flashCard, isMobile && s.flashCardMobile]}
+                  onPress={() => { if (!suppressCardTapRef.current) setRevealed(true); }}
+                >
+                  {renderCardContents()}
+                </TouchableOpacity>
+              ) : <View style={[s.flashCard, isMobile && s.flashCardMobile]}>{renderCardContents()}</View>}
+            </Animated.View>
 
             <View style={s.actionRow}>
               {mode === "flip" ? (

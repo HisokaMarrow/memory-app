@@ -42,7 +42,14 @@ export type GradeResult = {
   expectedDisplay: string;
 };
 
+export type SwipeGrade = "poor" | "good";
+
 const INTERVALS_MS = [10 * 60_000, 24 * 60 * 60_000, 3 * 24 * 60 * 60_000, 7 * 24 * 60 * 60_000, 21 * 24 * 60 * 60_000, 60 * 24 * 60 * 60_000];
+
+export function classifySwipe(distanceX: number, threshold = 72): SwipeGrade | null {
+  if (Math.abs(distanceX) < threshold) return null;
+  return distanceX < 0 ? "poor" : "good";
+}
 
 function normalizeAnswer(value: string) {
   return value

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
 
-import { gradeAnswer } from "../components/flashcards/drillEngine";
+import { classifySwipe, gradeAnswer } from "../components/flashcards/drillEngine";
 import { applyMapping, detectImport, type RawGrid } from "../components/flashcards/paoImport";
 import {
   enqueuePendingDelete,
@@ -34,6 +34,9 @@ assert.equal(
   "correct",
   "an exact punctuated choice must be accepted before alternative splitting",
 );
+assert.equal(classifySwipe(-90), "poor", "a left swipe must grade the card as poor");
+assert.equal(classifySwipe(90), "good", "a right swipe must grade the card as good");
+assert.equal(classifySwipe(40), null, "a short drag must return the card without grading it");
 
 const workbook = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(grid), "PAO");
