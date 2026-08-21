@@ -75,6 +75,13 @@ export const GAME_EXPERIENCES: Record<string, GameExperienceDefinition> = {
     phaseLabel: "Setup · Sprint · Results",
     routeSubtitle: "Practise clean mental division against the clock.",
   },
+  percentage: {
+    component: ({ game }) =>
+      createElement(ArithmeticGame, { game, kind: "percentage" }),
+    eyebrow: "Maths training",
+    phaseLabel: "Setup · Sprint · Results",
+    routeSubtitle: "Build practical percentage fluency against the clock.",
+  },
   doomsday: {
     component: DoomsdayGame,
     eyebrow: "Calendar training",

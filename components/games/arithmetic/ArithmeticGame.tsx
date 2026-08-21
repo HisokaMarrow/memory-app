@@ -11,15 +11,14 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
-import { buildGameResult, randomInt, useIsMobile } from "../gameUtils";
+import { buildGameResult, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
-
-type ArithmeticKind =
-  | "addition"
-  | "subtraction"
-  | "multiplication"
-  | "division";
-type Level = "calm" | "focused" | "challenge";
+import {
+  LEVEL_MAX,
+  makeQuestion,
+  type ArithmeticKind,
+  type Level,
+} from "./ArithmeticGame.logic";
 type Phase = "setup" | "play" | "result";
 type ArithmeticAttempt = {
   index: number;
@@ -28,35 +27,6 @@ type ArithmeticAttempt = {
   actual: number;
   correct: boolean;
 };
-
-const LEVEL_MAX: Record<Level, number> = {
-  calm: 10,
-  focused: 50,
-  challenge: 100,
-};
-
-function makeQuestion(kind: ArithmeticKind, level: Level) {
-  const max = LEVEL_MAX[level];
-  if (kind === "multiplication") {
-    const limit = level === "calm" ? 5 : level === "focused" ? 12 : 20;
-    const a = randomInt(2, limit);
-    const b = randomInt(2, limit);
-    return { prompt: `${a} × ${b}`, answer: a * b };
-  }
-  if (kind === "division") {
-    const divisor = randomInt(2, level === "challenge" ? 15 : 10);
-    const answer = randomInt(2, Math.max(5, Math.floor(max / divisor)));
-    return { prompt: `${divisor * answer} ÷ ${divisor}`, answer };
-  }
-  const a = randomInt(level === "calm" ? 1 : 10, max);
-  const b = randomInt(1, max);
-  if (kind === "subtraction")
-    return {
-      prompt: `${Math.max(a, b)} − ${Math.min(a, b)}`,
-      answer: Math.abs(a - b),
-    };
-  return { prompt: `${a} + ${b}`, answer: a + b };
-}
 
 export default function ArithmeticGame({
   game,

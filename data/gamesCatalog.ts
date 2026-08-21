@@ -232,6 +232,7 @@ export const GAMES: GameConfig[] = [
     color: "#E85D2A",
     icon: "percent",
     unlocked: true,
+    implemented: true,
   },
   {
     id: "doomsday",
