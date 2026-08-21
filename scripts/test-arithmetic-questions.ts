@@ -22,6 +22,14 @@ levels.forEach((level, levelIndex) => {
       Number.isInteger(question.answer),
       `${level} generated a non-integer answer for ${question.prompt}`,
     );
+    assert.ok(
+      !/NaN|undefined/.test(question.prompt),
+      `${level} generated an unusable prompt: ${question.prompt}`,
+    );
+    assert.ok(
+      question.answer >= 0,
+      `${level} generated a negative answer for ${question.prompt}`,
+    );
   }
 });
 
@@ -40,6 +48,10 @@ assert.ok(
 assert.ok(
   challengePrompts.some((prompt) => prompt.startsWith("Decrease")),
   "challenge questions must include percentage decreases",
+);
+assert.ok(
+  challengePrompts.some((prompt) => /^\d+% of \d+$/.test(prompt)),
+  "challenge questions must still include plain percentages",
 );
 
 console.log("Arithmetic question checks passed.");

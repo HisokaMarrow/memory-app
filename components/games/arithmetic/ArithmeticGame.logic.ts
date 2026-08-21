@@ -26,14 +26,35 @@ function randomItem<T>(items: readonly T[], random: () => number) {
   return items[randomInt(0, items.length - 1, random)];
 }
 
-function validPercentageBases(
+function greatestCommonDivisor(a: number, b: number) {
+  let left = a;
+  let right = b;
+  while (right !== 0) {
+    const next = left % right;
+    left = right;
+    right = next;
+  }
+  return left;
+}
+
+/**
+ * Picks a base for which `percentage% of base` lands on a whole number.
+ *
+ * Only multiples of `100 / gcd(percentage, 100)` qualify, so we step through
+ * those directly rather than filtering a range — that way the result is always
+ * defined, even if the range is later narrowed past the first valid multiple.
+ */
+function pickPercentageBase(
   percentage: number,
   min: number,
   max: number,
+  random: () => number,
 ) {
-  return Array.from({ length: max - min + 1 }, (_, index) => min + index).filter(
-    (base) => (base * percentage) % 100 === 0,
-  );
+  const step = 100 / greatestCommonDivisor(percentage, 100);
+  const first = Math.ceil(min / step) * step;
+  const last = Math.floor(max / step) * step;
+  if (first > last) return step;
+  return first + randomInt(0, (last - first) / step, random) * step;
 }
 
 function makePercentageQuestion(
@@ -51,26 +72,27 @@ function makePercentageQuestion(
 
   if (level === "focused") {
     const percentage = randomInt(1, 19, random) * 5;
-    const base = randomItem(
-      validPercentageBases(percentage, 10, 99),
-      random,
-    );
+    const base = pickPercentageBase(percentage, 10, 99, random);
     return {
       prompt: `${percentage}% of ${base}`,
       answer: (base * percentage) / 100,
     };
   }
 
-  const form = randomItem(["reverse", "increase", "decrease"] as const, random);
+  const form = randomItem(
+    ["plain", "reverse", "increase", "decrease"] as const,
+    random,
+  );
   const percentage =
     form === "decrease"
       ? randomInt(1, 15, random) * 5
       : randomInt(1, 20, random) * 5;
-  const base = randomItem(
-    validPercentageBases(percentage, 20, 400),
-    random,
-  );
+  const base = pickPercentageBase(percentage, 20, 400, random);
   const change = (base * percentage) / 100;
+
+  if (form === "plain") {
+    return { prompt: `${percentage}% of ${base}`, answer: change };
+  }
 
   if (form === "reverse") {
     return {
