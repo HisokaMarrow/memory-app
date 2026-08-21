@@ -16,11 +16,27 @@ import {
 import type { PaoItem, PaoSystemBundle, PegProgress } from "../components/flashcards/paoTypes";
 
 const grid: RawGrid = [
-  ["Number", "Person", "Action", "Object"],
-  [0, "Ozzy Osbourne", "Biting", "Bat"],
-  [1, "Neo", "Dodging", "Bullets"],
+  ["Number", "Person", "Action", "Object", "Starred", "Notes"],
+  [0, "Ozzy Osbourne", "Biting", "Bat", "Yes", "  Reference link  "],
+  [1, "Neo", "Dodging", "Bullets", "", ""],
 ];
 const detected = detectImport(grid);
+assert.deepEqual(
+  detected.fields.map((field) => field.id),
+  ["person", "action", "object"],
+  "item metadata columns must not become drillable fields",
+);
+assert.equal(detected.items[0].starred, true, "the exported Yes marker must restore a star");
+assert.equal(detected.items[0].notes, "Reference link", "notes must round-trip as trimmed free text");
+assert.equal(detected.items[1].starred, false, "an empty star marker must remain false");
+const truthyStars = ["Yes", "yes", "true", "1", "x"];
+truthyStars.forEach((value) => {
+  const result = detectImport([
+    ["Key", "Person", "Action", "Object", "Starred"],
+    [0, "Person", "Action", "Object", value],
+  ]);
+  assert.equal(result.items[0].starred, true, `${value} must be recognised as starred`);
+});
 const withoutKey = applyMapping(
   grid,
   detected.columns.map((column) => column.role === "key" ? "ignore" : column.role),

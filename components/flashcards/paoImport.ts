@@ -38,7 +38,15 @@ const ROLE_ALIASES: Record<string, ColumnRole> = {
   object: "object",
   thing: "object",
   item: "object",
+  notes: "notes",
+  note: "notes",
+  starred: "starred",
+  star: "starred",
+  favourite: "starred",
+  favorite: "starred",
 };
+
+const ITEM_METADATA_ROLES = new Set<ColumnRole>(["notes", "starred"]);
 
 const FIELD_LABELS: Record<string, string> = {
   person: "Person",
@@ -89,7 +97,7 @@ function slug(value: string, fallback: string) {
   return normalized || fallback;
 }
 
-function roleForHeader(header: string, index: number): ColumnRole {
+function knownRoleForHeader(header: string): ColumnRole | null {
   const clean = header.toLowerCase().replace(/[^a-z0-9#]+/g, " ").trim();
   if (clean === "#") return "key";
   const exact = ROLE_ALIASES[clean];
@@ -97,6 +105,12 @@ function roleForHeader(header: string, index: number): ColumnRole {
   for (const [label, role] of Object.entries(ROLE_ALIASES)) {
     if (new RegExp(`(^| )${label}( |$)`).test(clean)) return role;
   }
+  return null;
+}
+
+function roleForHeader(header: string, index: number): ColumnRole {
+  const knownRole = knownRoleForHeader(header);
+  if (knownRole) return knownRole;
   if (header.trim()) return slug(header, `field_${index + 1}`);
   return index === 0 ? "key" : index === 1 ? "person" : index === 2 ? "action" : index === 3 ? "object" : "ignore";
 }
@@ -104,7 +118,7 @@ function roleForHeader(header: string, index: number): ColumnRole {
 function looksLikeHeader(row: RawGrid[number]) {
   const populated = row.map(cellText).filter(Boolean);
   if (!populated.length) return false;
-  const known = populated.filter((cell) => roleForHeader(cell, -1) !== slug(cell, "field")).length;
+  const known = populated.filter((cell) => knownRoleForHeader(cell) != null).length;
   const numeric = populated.filter((cell) => /^\d+$/.test(cell)).length;
   return known >= 2 || (known >= 1 && numeric === 0 && populated.length >= 2);
 }
@@ -192,13 +206,23 @@ function makeFields(columns: ImportDetection["columns"]) {
   const seen = new Set<string>();
   const fields: PaoField[] = [];
   columns.forEach((column) => {
-    if (column.role === "key" || column.role === "ignore" || seen.has(column.role)) return;
+    if (
+      column.role === "key" ||
+      column.role === "ignore" ||
+      ITEM_METADATA_ROLES.has(column.role) ||
+      seen.has(column.role)
+    )
+      return;
     seen.add(column.role);
     const headerLabel = column.header.trim();
     const label = FIELD_LABELS[column.role] ?? (headerLabel || column.role.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()));
     fields.push({ id: column.role, label, shortLabel: label.slice(0, 1).toUpperCase() });
   });
   return fields;
+}
+
+function starredValue(value: string | number | null | undefined) {
+  return ["yes", "true", "1", "x"].includes(cellText(value).toLowerCase());
 }
 
 export function applyMapping(grid: RawGrid, mapping: ColumnRole[], startRow: number): ImportDetection {
@@ -215,6 +239,8 @@ export function applyMapping(grid: RawGrid, mapping: ColumnRole[], startRow: num
     sample: rawRows.slice(0, 4).map(({ row }) => cellText(row[index])).filter(Boolean),
   }));
   const fields = makeFields(columns);
+  const notesColumn = columns.find((column) => column.role === "notes");
+  const starredColumn = columns.find((column) => column.role === "starred");
   const issues: ImportIssue[] = [];
   const duplicateRows = new Map<string, number[]>();
   const items: PaoItem[] = [];
@@ -275,8 +301,8 @@ export function applyMapping(grid: RawGrid, mapping: ColumnRole[], startRow: num
       displayLabel,
       cardAssetId,
       values,
-      starred: false,
-      notes: "",
+      starred: starredColumn ? starredValue(row[starredColumn.index]) : false,
+      notes: notesColumn ? cellText(row[notesColumn.index]) : "",
       position,
     });
   });

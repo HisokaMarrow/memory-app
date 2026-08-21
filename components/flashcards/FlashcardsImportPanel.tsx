@@ -17,7 +17,15 @@ type FlashcardsImportPanelProps = {
   onImported: (bundle: PaoSystemBundle) => void;
 };
 
-const ROLE_ORDER: ColumnRole[] = ["key", "person", "action", "object", "ignore"];
+const ROLE_ORDER: ColumnRole[] = [
+  "key",
+  "person",
+  "action",
+  "object",
+  "starred",
+  "notes",
+  "ignore",
+];
 
 function issueId(issue: ImportDetection["issues"][number], index: number) {
   return `${issue.type}:${"key" in issue ? issue.key : "row" in issue ? issue.row : "keys"}:${index}`;
