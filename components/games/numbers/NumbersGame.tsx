@@ -9,7 +9,6 @@ import {
 import { Feather } from "@expo/vector-icons";
 import * as Speech from "expo-speech";
 import type { Voice } from "expo-speech";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import GameFocusOverlay from "../GameFocusOverlay";
@@ -18,6 +17,8 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
+import { useGameTimers } from "../useGameTimers";
 import { buildGameResult, useIsMobile } from "../gameUtils";
 import { game as s } from "../../../styles/screens/game.styles";
 import {
@@ -294,6 +295,31 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   const autoCheckRef = useRef(false);
   const resultSavedRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const {
+    clearGameInterval,
+    clearGameTimeout,
+    clearGameTimers,
+    setGameInterval,
+    setGameTimeout,
+  } = useGameTimers();
+  const clearSwitchTimer = useCallback(() => {
+    if (!switchTimerRef.current) return;
+    clearGameTimeout(switchTimerRef.current);
+    switchTimerRef.current = null;
+  }, [clearGameTimeout]);
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      resultSavedRef.current = true;
+      autoCheckRef.current = true;
+      clearGameTimers();
+      clearSwitchTimer();
+      stopVoiceOver();
+      stopRecallListening();
+      setPaused(false);
+    },
+  });
 
   const minValue = clampNumber(Number(settings.min), 0);
   const maxValue = Math.max(minValue, clampNumber(Number(settings.max), 99));
@@ -312,12 +338,6 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     settings.exerciseSeconds > 0 &&
     settings.intervalSeconds > 0;
   const recallTimerValue = formatRecallTime(recallSecondsLeft);
-
-  function clearSwitchTimer() {
-    if (!switchTimerRef.current) return;
-    globalThis.clearTimeout(switchTimerRef.current);
-    switchTimerRef.current = null;
-  }
 
   useEffect(() => {
     currentIndexRef.current = currentIndex;
@@ -338,22 +358,22 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     if (next === current) return;
 
     setNumberVisible(false);
-    switchTimerRef.current = globalThis.setTimeout(() => {
+    switchTimerRef.current = setGameTimeout(() => {
       currentIndexRef.current = next;
       setCurrentIndex(next);
       setMaxSeenIndex((seen) => Math.max(seen, next));
       setNumberVisible(true);
       switchTimerRef.current = null;
     }, 140);
-  }, []);
+  }, [setGameTimeout]);
 
   useEffect(() => {
     if (phase === "memorise" && !paused) return;
     clearSwitchTimer();
     setNumberVisible(true);
-  }, [paused, phase]);
+  }, [clearSwitchTimer, paused, phase]);
 
-  useEffect(() => () => clearSwitchTimer(), []);
+  useEffect(() => () => clearSwitchTimer(), [clearSwitchTimer]);
 
   useEffect(() => {
     setRecallSpeechSupported(
@@ -417,10 +437,10 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   useEffect(() => {
     if (phase !== "memorise" || paused) return;
 
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
-          globalThis.clearInterval(timer);
+          clearGameInterval(timer);
           setPaused(false);
           setRecallSecondsLeft(settings.recallSeconds);
           setPhase("recall");
@@ -430,16 +450,16 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
       });
     }, 1000);
 
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase, settings.recallSeconds]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, settings.recallSeconds]);
 
   useEffect(() => {
     if (phase !== "countdown") return;
 
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          globalThis.clearInterval(timer);
+          clearGameInterval(timer);
           setPhase("memorise");
           return 0;
         }
@@ -447,8 +467,8 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
       });
     }, 1000);
 
-    return () => globalThis.clearInterval(timer);
-  }, [phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, phase, setGameInterval]);
 
   useEffect(() => {
     if (phase !== "recall") return;
@@ -458,22 +478,24 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
         (_, index) => prev[index] ?? "",
       ),
     );
-    globalThis.setTimeout(() => recallRefs.current[0]?.focus(), 80);
-  }, [phase, visibleSequence.length]);
+    setGameTimeout(() => recallRefs.current[0]?.focus(), 80);
+  }, [phase, setGameTimeout, visibleSequence.length]);
 
   useEffect(() => {
     if (phase !== "memorise" || paused || settings.mode !== "auto") return;
 
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       moveNumber(1);
     }, settings.intervalSeconds * 1000);
 
-    return () => globalThis.clearInterval(timer);
+    return () => clearGameInterval(timer);
   }, [
+    clearGameInterval,
     moveNumber,
     paused,
     phase,
     sequence.length,
+    setGameInterval,
     settings.intervalSeconds,
     settings.mode,
   ]);
@@ -655,7 +677,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     });
 
     if (cleanValue.length >= settings.digits) {
-      globalThis.setTimeout(() => focusRecallInput(index + 1), 20);
+      setGameTimeout(() => focusRecallInput(index + 1), 20);
     }
   }
 
@@ -684,7 +706,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
         if (next[cursor].length >= settings.digits) cursor += 1;
       }
 
-      globalThis.setTimeout(
+      setGameTimeout(
         () => focusRecallInput(Math.min(cursor, next.length - 1)),
         20,
       );
@@ -818,13 +840,13 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     }
 
     autoCheckRef.current = false;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setRecallSecondsLeft((prev) => {
         if (prev <= 1) {
-          globalThis.clearInterval(timer);
+          clearGameInterval(timer);
           if (!autoCheckRef.current) {
             autoCheckRef.current = true;
-            globalThis.setTimeout(() => checkAnswersRef.current(), 0);
+            setGameTimeout(() => checkAnswersRef.current(), 0);
           }
           return 0;
         }
@@ -832,8 +854,8 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
       });
     }, 1000);
 
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, setGameTimeout]);
 
   useEffect(() => {
     if (
@@ -1083,7 +1105,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setupPanel}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View
               style={[s.countdownPanel, isMobile && s.countdownPanelMobile]}
@@ -1108,7 +1130,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setupPanel}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={[s.playPanel, isMobile && s.playPanelMobile]}>
               <View style={[s.playTimerRow, isMobile && s.playTimerRowMobile]}>
@@ -1201,7 +1223,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setupPanel}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={[s.panelHeader, isMobile && s.panelHeaderMobile]}>
               <View style={isMobile && s.panelHeaderCopyMobile}>
@@ -1405,7 +1427,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setupPanel}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <View style={[s.panelHeader, isMobile && s.panelHeaderMobile]}>
             <View style={isMobile && s.panelHeaderCopyMobile}>
@@ -1493,7 +1515,7 @@ export default function NumbersGame({ game }: { game: GameConfig }) {
             mobile={isMobile}
             secondaryLabel="Back to Menu"
             secondaryIcon="arrow-left"
-            onSecondary={() => router.push("/games" as any)}
+            onSecondary={exitToMenu}
             primaryLabel="Play Again"
             primaryIcon="refresh-cw"
             onPrimary={startGame}

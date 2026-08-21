@@ -7,7 +7,6 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
@@ -17,6 +16,8 @@ import GameSegmentedControl from "../GameSegmentedControl";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
+import { useGameTimers } from "../useGameTimers";
 import { buildGameResult, formatTime, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
@@ -176,6 +177,22 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
   const finishRef = useRef<() => void>(() => {});
   const finishedRef = useRef(false);
   const startedAtRef = useRef(Date.now());
+  const {
+    clearGameInterval,
+    clearGameTimers,
+    setGameInterval,
+    setGameTimeout,
+  } = useGameTimers();
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      phaseRef.current = "setup";
+      finishedRef.current = true;
+      clearGameTimers();
+      setPaused(false);
+    },
+  });
 
   const validWords = useMemo(() => cleanWords(puzzle), [puzzle]);
   const acceptedWords = useMemo(
@@ -196,7 +213,7 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
   }, [phase]);
 
   function focusEntry() {
-    globalThis.setTimeout(() => inputRef.current?.focus(), 40);
+    setGameTimeout(() => inputRef.current?.focus(), 40);
   }
 
   function finishGame() {
@@ -236,18 +253,18 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
 
   useEffect(() => {
     if (phase !== "play" || paused) return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setTimeLeft((value) => {
         if (value <= 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => finishRef.current(), 0);
+          clearGameInterval(timer);
+          setGameTimeout(() => finishRef.current(), 0);
           return 0;
         }
         return value - 1;
       });
     }, 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, setGameTimeout]);
 
   function startGame() {
     const options = PUZZLES[difficulty];
@@ -339,7 +356,7 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <View>
@@ -461,7 +478,7 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setup}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <View style={s.gameStatusRow}>
             <View>
@@ -523,7 +540,7 @@ export default function WordForgeGame({ game }: { game: GameConfig }) {
             mobile={isMobile}
             secondaryIcon="arrow-left"
             secondaryLabel="Back to Menu"
-            onSecondary={() => router.push("/games" as any)}
+            onSecondary={exitToMenu}
             primaryIcon="rotate-cw"
             primaryLabel="Play Again"
             onPrimary={startGame}

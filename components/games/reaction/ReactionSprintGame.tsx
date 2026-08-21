@@ -5,7 +5,6 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
@@ -14,6 +13,7 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
 import { buildGameResult, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
@@ -42,6 +42,15 @@ export default function ReactionSprintGame({ game }: { game: GameConfig }) {
   const falseStartsRef = useRef(0);
   const startedAtRef = useRef(Date.now());
   const finishedRef = useRef(false);
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      finishedRef.current = true;
+      clearTimer();
+      setPaused(false);
+    },
+  });
 
   function clearTimer() {
     if (timerRef.current) globalThis.clearTimeout(timerRef.current);
@@ -222,7 +231,7 @@ export default function ReactionSprintGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <Text style={[s.kicker, { color: game.color }]}>
               Reaction run complete
@@ -244,7 +253,7 @@ export default function ReactionSprintGame({ game }: { game: GameConfig }) {
               mobile={isMobile}
               secondaryLabel="Back to Menu"
               secondaryIcon="arrow-left"
-              onSecondary={() => router.push("/games" as any)}
+              onSecondary={exitToMenu}
               primaryLabel="Play Again"
               primaryIcon="refresh-cw"
               onPrimary={startGame}
@@ -259,7 +268,7 @@ export default function ReactionSprintGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setup}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <View style={s.gameStatusRow}>
             <Text style={[s.kicker, { color: game.color }]}>

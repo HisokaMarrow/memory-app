@@ -7,7 +7,6 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
@@ -17,6 +16,8 @@ import GameSegmentedControl from "../GameSegmentedControl";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
+import { useGameTimers } from "../useGameTimers";
 import { buildGameResult, formatTime, shuffle, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 import { PLAYING_CARD_BY_ID, PLAYING_CARDS } from "./cardAssets";
@@ -68,6 +69,23 @@ export default function CardsGame({ game }: { game: GameConfig }) {
   const moveCardRef = useRef<(direction: -1 | 1) => void>(() => {});
   const resultSavedRef = useRef(false);
   const startedAtRef = useRef(Date.now());
+  const {
+    clearGameInterval,
+    clearGameTimeout,
+    clearGameTimers,
+    setGameInterval,
+    setGameTimeout,
+  } = useGameTimers();
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      phaseRef.current = "setup";
+      resultSavedRef.current = true;
+      clearGameTimers();
+      setPaused(false);
+    },
+  });
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -89,7 +107,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
   }, [placements]);
 
   function beginRecall() {
-    if (phaseRef.current === "recall" || phaseRef.current === "result") return;
+    if (phaseRef.current !== "memorise") return;
     const shownCount = Math.max(1, Math.min(sequence.length, maxSeenIndex + 1));
     phaseRef.current = "recall";
     setPaused(false);
@@ -160,35 +178,35 @@ export default function CardsGame({ game }: { game: GameConfig }) {
       setPhase("memorise");
       return;
     }
-    const timer = globalThis.setTimeout(
+    const timer = setGameTimeout(
       () => setCountdown((value) => value - 1),
       1000,
     );
-    return () => globalThis.clearTimeout(timer);
-  }, [countdown, phase]);
+    return () => clearGameTimeout(timer);
+  }, [clearGameTimeout, countdown, phase, setGameTimeout]);
 
   useEffect(() => {
     if (phase !== "memorise" || paused) return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setStudyTimeLeft((value) => {
         if (value <= 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => beginRecallRef.current(), 0);
+          clearGameInterval(timer);
+          setGameTimeout(() => beginRecallRef.current(), 0);
           return 0;
         }
         return value - 1;
       });
     }, 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, setGameTimeout]);
 
   useEffect(() => {
     if (phase !== "memorise" || paused || mode !== "auto") return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setCurrentIndex((index) => {
         if (index >= sequence.length - 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => beginRecallRef.current(), 0);
+          clearGameInterval(timer);
+          setGameTimeout(() => beginRecallRef.current(), 0);
           return index;
         }
         const nextIndex = index + 1;
@@ -196,23 +214,32 @@ export default function CardsGame({ game }: { game: GameConfig }) {
         return nextIndex;
       });
     }, intervalSeconds * 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [intervalSeconds, mode, paused, phase, sequence.length]);
+    return () => clearGameInterval(timer);
+  }, [
+    clearGameInterval,
+    intervalSeconds,
+    mode,
+    paused,
+    phase,
+    sequence.length,
+    setGameInterval,
+    setGameTimeout,
+  ]);
 
   useEffect(() => {
     if (phase !== "recall" || paused) return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setRecallTimeLeft((value) => {
         if (value <= 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => checkResultsRef.current(), 0);
+          clearGameInterval(timer);
+          setGameTimeout(() => checkResultsRef.current(), 0);
           return 0;
         }
         return value - 1;
       });
     }, 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, setGameTimeout]);
 
   function startGame() {
     const nextSequence = buildDeck(deckCount);
@@ -403,7 +430,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View
               style={[s.countdownPanel, isMobile && s.countdownPanelMobile]}
@@ -425,7 +452,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <View>
@@ -544,7 +571,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <View>
@@ -727,7 +754,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setup}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <Text style={[s.kicker, { color: game.color }]}>
             Card results saved
@@ -817,7 +844,7 @@ export default function CardsGame({ game }: { game: GameConfig }) {
             mobile={isMobile}
             secondaryLabel="Back to Menu"
             secondaryIcon="arrow-left"
-            onSecondary={() => router.push("/games" as any)}
+            onSecondary={exitToMenu}
             primaryLabel="Play Again"
             primaryIcon="refresh-cw"
             onPrimary={startGame}

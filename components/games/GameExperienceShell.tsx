@@ -31,7 +31,7 @@ export default function GameExperienceShell({
         <View style={[s.heroCopy, isMobile && s.heroCopyMobile]}>
           <TouchableOpacity
             style={[s.backLink, { backgroundColor: toneColor, boxShadow: `0 7px 18px ${toneColor}38` as any }]}
-            onPress={() => router.push("/games" as any)}
+            onPress={() => router.replace("/games" as any)}
           >
             <Feather name="arrow-left" size={14} color="#FFFFFF" />
             <Text style={s.backLinkText}>All games</Text>

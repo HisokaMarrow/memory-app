@@ -46,7 +46,7 @@ export default function GameRoute() {
                 </View>
               </View>
               <Text style={s.emptyText}>This game will use the same focused training structure after the Numbers Game is complete.</Text>
-              <TouchableOpacity style={[s.primaryButtonInline, { backgroundColor: game.color }]} onPress={() => router.push("/games" as any)}>
+              <TouchableOpacity style={[s.primaryButtonInline, { backgroundColor: game.color }]} onPress={() => router.replace("/games" as any)}>
                 <Feather name="arrow-left" size={15} color="#FFFFFF" />
                 <Text style={s.primaryButtonText}>Back to Games</Text>
               </TouchableOpacity>
@@ -58,7 +58,7 @@ export default function GameRoute() {
           <View style={s.panel}>
             <Text style={s.panelTitle}>Game not found</Text>
             <Text style={s.emptyText}>Choose a game from the catalogue to start a training session.</Text>
-            <TouchableOpacity style={s.primaryButtonInline} onPress={() => router.push("/games" as any)}>
+            <TouchableOpacity style={s.primaryButtonInline} onPress={() => router.replace("/games" as any)}>
               <Feather name="arrow-left" size={15} color="#FFFFFF" />
               <Text style={s.primaryButtonText}>Back to Games</Text>
             </TouchableOpacity>
