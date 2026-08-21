@@ -90,8 +90,9 @@ function dayIndexFor(date = new Date()) {
   );
 }
 
-function gameOfTheDay() {
+function gameOfTheDay(): GameConfig | undefined {
   const playableGames = GAMES.filter((game) => game.implemented && game.unlocked);
+  if (!playableGames.length) return undefined;
   return playableGames[dayIndexFor() % playableGames.length];
 }
 
@@ -789,7 +790,7 @@ export default function GamesScreen() {
             </View>
           ) : (
             <>
-              {!isMobile && !isNativeApp && (
+              {!isMobile && !isNativeApp && dailyGame && (
                 <GameOfTheDayBanner game={dailyGame} isMobile={isMobile} />
               )}
               {categories.map(({ category, games }) => (
