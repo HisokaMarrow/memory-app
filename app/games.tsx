@@ -91,7 +91,8 @@ function dayIndexFor(date = new Date()) {
 }
 
 function gameOfTheDay() {
-  return GAMES[dayIndexFor() % GAMES.length];
+  const playableGames = GAMES.filter((game) => game.implemented && game.unlocked);
+  return playableGames[dayIndexFor() % playableGames.length];
 }
 
 function shadeHex(hex: string, factor: number) {
