@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Text, TextInput, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
@@ -11,6 +10,8 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
+import { useGameTimers } from "../useGameTimers";
 import { buildGameResult, shuffle, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
@@ -86,19 +87,35 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
   const finishRef = useRef<() => void>(() => {});
   const finishedRef = useRef(false);
   const startedAtRef = useRef(Date.now());
+  const {
+    clearGameInterval,
+    clearGameTimers,
+    setGameInterval,
+    setGameTimeout,
+  } = useGameTimers();
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      phaseRef.current = "setup";
+      finishedRef.current = true;
+      clearGameTimers();
+      setPaused(false);
+    },
+  });
 
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
 
   function beginRecall() {
-    if (phaseRef.current === "recall" || phaseRef.current === "result") return;
+    if (phaseRef.current !== "study") return;
     phaseRef.current = "recall";
     setPaused(false);
     setAnswers(Array(words.length).fill(""));
     setTimeLeft(recallSeconds);
     setPhase("recall");
-    globalThis.setTimeout(() => inputRefs.current[0]?.focus(), 80);
+    setGameTimeout(() => inputRefs.current[0]?.focus(), 80);
   }
   beginRecallRef.current = beginRecall;
 
@@ -148,33 +165,41 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
 
   useEffect(() => {
     if (phase !== "study" || paused) return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setCurrentIndex((index) => {
         if (index >= words.length - 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => beginRecallRef.current(), 250);
+          clearGameInterval(timer);
+          setGameTimeout(() => beginRecallRef.current(), 250);
           return index;
         }
         return index + 1;
       });
     }, displaySeconds * 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [displaySeconds, paused, phase, words.length]);
+    return () => clearGameInterval(timer);
+  }, [
+    clearGameInterval,
+    displaySeconds,
+    paused,
+    phase,
+    setGameInterval,
+    setGameTimeout,
+    words.length,
+  ]);
 
   useEffect(() => {
     if (phase !== "recall" || paused) return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setTimeLeft((current) => {
         if (current <= 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => finishRef.current(), 0);
+          clearGameInterval(timer);
+          setGameTimeout(() => finishRef.current(), 0);
           return 0;
         }
         return current - 1;
       });
     }, 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, setGameTimeout]);
 
   function startGame() {
     const nextWords = shuffledWords(wordCount);
@@ -258,7 +283,7 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <Text style={[s.kicker, { color: game.color }]}>
@@ -335,7 +360,7 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <View>
@@ -409,7 +434,7 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setup}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <Text style={[s.kicker, { color: game.color }]}>Recall complete</Text>
           <Text style={[s.panelTitle, isMobile && s.panelTitleMobile]}>
@@ -474,7 +499,7 @@ export default function WordRecallGame({ game }: { game: GameConfig }) {
             mobile={isMobile}
             secondaryLabel="Back to Menu"
             secondaryIcon="arrow-left"
-            onSecondary={() => router.push("/games" as any)}
+            onSecondary={exitToMenu}
             primaryLabel="Play Again"
             primaryIcon="refresh-cw"
             onPrimary={startGame}

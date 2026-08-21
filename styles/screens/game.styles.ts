@@ -200,6 +200,25 @@ export const game = createWebStyles({
   focusCardNativeMobile: {
     width: "100%" as any,
   },
+  focusCloseRow: {
+    width: "100%" as any,
+    minHeight: 52,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    position: "relative" as any,
+    zIndex: 3,
+  },
+  focusCloseButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(18,18,18,0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.28)" as any,
+  },
   backgroundPanel: {
     opacity: 0.72,
     transform: [{ scale: 0.985 }],
