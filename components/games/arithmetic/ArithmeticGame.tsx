@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
@@ -11,6 +10,8 @@ import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSegmentedControl from "../GameSegmentedControl";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
+import { useGameTimers } from "../useGameTimers";
 import { buildGameResult, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 import {
@@ -54,6 +55,21 @@ export default function ArithmeticGame({
   const startedAtRef = useRef(Date.now());
   const finishGameRef = useRef<() => void>(() => {});
   const finishedRef = useRef(false);
+  const {
+    clearGameInterval,
+    clearGameTimers,
+    setGameInterval,
+    setGameTimeout,
+  } = useGameTimers();
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      finishedRef.current = true;
+      clearGameTimers();
+      setPaused(false);
+    },
+  });
 
   function finishGame() {
     if (finishedRef.current) return;
@@ -97,18 +113,18 @@ export default function ArithmeticGame({
 
   useEffect(() => {
     if (phase !== "play" || paused) return;
-    const timer = globalThis.setInterval(() => {
+    const timer = setGameInterval(() => {
       setTimeLeft((current) => {
         if (current <= 1) {
-          globalThis.clearInterval(timer);
-          globalThis.setTimeout(() => finishGameRef.current(), 0);
+          clearGameInterval(timer);
+          setGameTimeout(() => finishGameRef.current(), 0);
           return 0;
         }
         return current - 1;
       });
     }, 1000);
-    return () => globalThis.clearInterval(timer);
-  }, [paused, phase]);
+    return () => clearGameInterval(timer);
+  }, [clearGameInterval, paused, phase, setGameInterval, setGameTimeout]);
 
   function startGame() {
     finishedRef.current = false;
@@ -152,8 +168,8 @@ export default function ArithmeticGame({
     setFeedback(isCorrect ? "correct" : "wrong");
     setAnswer("");
     setQuestion(makeQuestion(kind, level));
-    globalThis.setTimeout(() => answerInputRef.current?.focus(), 0);
-    globalThis.setTimeout(() => setFeedback(null), 320);
+    setGameTimeout(() => answerInputRef.current?.focus(), 0);
+    setGameTimeout(() => setFeedback(null), 320);
   }
 
   const setup = (
@@ -201,7 +217,7 @@ export default function ArithmeticGame({
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <Text style={[s.kicker, { color: game.color }]}>
@@ -302,7 +318,7 @@ export default function ArithmeticGame({
   return (
     <>
       {setup}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <Text style={[s.kicker, { color: game.color }]}>Sprint complete</Text>
           <Text style={[s.panelTitle, isMobile && s.panelTitleMobile]}>
@@ -382,7 +398,7 @@ export default function ArithmeticGame({
             mobile={isMobile}
             secondaryLabel="Back to Menu"
             secondaryIcon="arrow-left"
-            onSecondary={() => router.push("/games" as any)}
+            onSecondary={exitToMenu}
             primaryLabel="Play Again"
             primaryIcon="refresh-cw"
             onPrimary={startGame}

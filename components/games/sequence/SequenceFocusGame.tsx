@@ -5,7 +5,6 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import type { GameConfig } from "../../../data/gamesCatalog";
 import { game as s } from "../../../styles/screens/game.styles";
@@ -13,6 +12,7 @@ import GameFocusOverlay from "../GameFocusOverlay";
 import GameSessionActions from "../GameSessionActions";
 import GameSessionPanel from "../GameSessionPanel";
 import GameSetupLayout from "../GameSetupLayout";
+import { useExitToMenu } from "../useExitToMenu";
 import { buildGameResult, useIsMobile } from "../gameUtils";
 import { saveGameResult, type StoredGameResult } from "../resultsStore";
 
@@ -67,6 +67,16 @@ export default function SequenceFocusGame({ game }: { game: GameConfig }) {
   const inputLockedRef = useRef(false);
   const finishedRef = useRef(false);
   const startedAtRef = useRef(Date.now());
+  const exitToMenu = useExitToMenu({
+    phase,
+    setPhase,
+    onExit: () => {
+      finishedRef.current = true;
+      inputLockedRef.current = true;
+      clearTimers();
+      setPaused(false);
+    },
+  });
 
   function clearTimers() {
     timersRef.current.forEach((timer) => globalThis.clearTimeout(timer));
@@ -260,7 +270,7 @@ export default function SequenceFocusGame({ game }: { game: GameConfig }) {
     return (
       <>
         {setup}
-        <GameFocusOverlay mobile={isMobile}>
+        <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
           <GameSessionPanel accentColor={game.color} mobile={isMobile}>
             <View style={s.gameStatusRow}>
               <View>
@@ -386,7 +396,7 @@ export default function SequenceFocusGame({ game }: { game: GameConfig }) {
   return (
     <>
       {setup}
-      <GameFocusOverlay mobile={isMobile}>
+      <GameFocusOverlay mobile={isMobile} onClose={exitToMenu}>
         <GameSessionPanel accentColor={game.color} mobile={isMobile}>
           <Text style={[s.kicker, { color: game.color }]}>
             {gameOver ? "Game over" : "Test complete"}
@@ -462,7 +472,7 @@ export default function SequenceFocusGame({ game }: { game: GameConfig }) {
             mobile={isMobile}
             secondaryLabel="Back to Menu"
             secondaryIcon="arrow-left"
-            onSecondary={() => router.push("/games" as any)}
+            onSecondary={exitToMenu}
             primaryLabel="Play Again"
             primaryIcon="refresh-cw"
             onPrimary={startGame}
