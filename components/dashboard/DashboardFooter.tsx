@@ -1,5 +1,5 @@
-import FooterSection from "../layout/FooterSection";
+import AppFooter from "../layout/AppFooter";
 
 export default function DashboardFooter({ hasBottomNav = false }: { hasBottomNav?: boolean }) {
-  return <FooterSection dashboard hasBottomNav={hasBottomNav} />;
+  return <AppFooter hasBottomNav={hasBottomNav} />;
 }
