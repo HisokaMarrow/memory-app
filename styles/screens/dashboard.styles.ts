@@ -14,6 +14,10 @@ const panelSoft = "#202020";
 const darkBorder = C.borderGreen;
 const darkMuted = C.mutedInverse;
 
+// Floating sidebar: a rounded panel inset from the window edges (desktop web).
+const SIDEBAR_WIDTH = 220;
+const SIDEBAR_INSET = 14;
+
 export const dashboard = createWebStyles({
   root: { flex: 1, backgroundColor: ink, overscrollBehavior: "none" as any },
   rootApp: { backgroundColor: "#F5F8FA" },
@@ -144,22 +148,24 @@ export const dashboard = createWebStyles({
   dashboardMobileMenuDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginVertical: 6 },
 
   body: { flex: 1, flexDirection: "row", paddingTop: 60 },
-  bodyDesktop: { paddingTop: 0 },
+  bodyDesktop: { paddingTop: 0, backgroundColor: "#FFFFFF" },
   bodyCompact: { flexDirection: "column" },
   bodyMobile: { paddingTop: 60, backgroundColor: ink },
   bodyApp: { paddingTop: 0 },
   bodyAppLight: { backgroundColor: "#F5F8FA" },
   sidebar: {
     position: "fixed" as any,
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: 220,
+    top: SIDEBAR_INSET,
+    left: SIDEBAR_INSET,
+    bottom: SIDEBAR_INSET,
+    width: SIDEBAR_WIDTH,
     backgroundColor: "#101010",
-    borderRightWidth: 1,
-    borderRightColor: darkBorder,
+    borderWidth: 1,
+    borderColor: darkBorder,
+    borderRadius: RADIUS.lg,
     padding: 12,
     paddingTop: 20,
+    boxShadow: "0 18px 44px rgba(0,0,0,0.30)" as any,
     zIndex: 100,
   },
   // Logo row at the top of the sidebar (replaces the removed top header bar)
@@ -174,7 +180,9 @@ export const dashboard = createWebStyles({
     width: "100%" as any,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRightWidth: 0,
+    borderRadius: 0,
+    borderWidth: 0,
+    boxShadow: "none" as any,
     borderBottomWidth: 1,
     borderBottomColor: darkBorder,
   },
@@ -189,7 +197,7 @@ export const dashboard = createWebStyles({
   navTextActive: { color: orange, fontWeight: "600" as const },
   navDot: { marginLeft: "auto" as any, width: 4, height: 4, borderRadius: 2, backgroundColor: orange },
 
-  contentFrame: { flex: 1, marginLeft: 220, backgroundColor: "#FFFFFF", position: "relative" as any, overflow: "hidden", overscrollBehavior: "none" as any },
+  contentFrame: { flex: 1, marginLeft: SIDEBAR_WIDTH + SIDEBAR_INSET * 2, backgroundColor: "#FFFFFF", position: "relative" as any, overflow: "hidden", overscrollBehavior: "none" as any },
   contentFrameCompact: { marginLeft: 0 },
   contentFrameMobile: { width: "100%" as any, maxWidth: "100vw" as any, overflow: "hidden" as any },
   contentFrameApp: { marginLeft: 0 },
@@ -205,7 +213,10 @@ export const dashboard = createWebStyles({
     zIndex: 1,
   },
   footerBounceBlockerApp: { backgroundColor: "#F5F8FA", opacity: 0 },
-  pageSurface: { position: "relative" as any, overflow: "hidden", backgroundColor: "transparent", overscrollBehavior: "none" as any },
+  // overflow stays visible: clipping here sliced the last card's drop shadow flat
+  // at the page/footer boundary, which read as a hard seam. Horizontal overflow on
+  // mobile is already guarded by contentFrameMobile / contentMobile / contentInnerMobile.
+  pageSurface: { position: "relative" as any, overflow: "visible", backgroundColor: "transparent", overscrollBehavior: "none" as any },
   pageSurfaceFooterPinned: { flex: 1 },
   pageSurfaceApp: { backgroundColor: "#F5F8FA" },
   pageSurfaceContent: { position: "relative" as any, zIndex: 5 },

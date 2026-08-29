@@ -75,7 +75,9 @@ export default function DashboardShell({
   lightHeader = false,
   showPageHeader = true,
   showFooter = true,
-  pinFooter = false,
+  // Pinned by default: on a short page the footer must sit at the bottom of the
+  // viewport, not float directly under the content. Pass false to opt out.
+  pinFooter = true,
 }: DashboardShellProps) {
   const { width } = useWindowDimensions();
   const [checkingSession, setCheckingSession] = useState(() => !getCachedDashboardUser());
